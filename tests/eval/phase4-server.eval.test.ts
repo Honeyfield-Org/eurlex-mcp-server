@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { createServer } from '../../src/index.js'
+import { createServer } from '../../src/server.js'
 
 // ---------------------------------------------------------------------------
 // Helper: spin up a server + client pair over in-memory transport

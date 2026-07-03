@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { createServer } from '../../src/index.js'
+import { createServer } from '../../src/server.js'
 import { CellarClient, escapeSparqlString } from '../../src/services/cellarClient.js'
 import { SPARQL_ENDPOINT, CELLAR_REST_BASE } from '../../src/constants.js'
 
