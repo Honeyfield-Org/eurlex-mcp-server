@@ -109,6 +109,27 @@ Add to `~/.windsurf/mcp.json`:
 }
 ```
 
+### HTTP Transport (Remote Deployments)
+
+When running the server over HTTP (`pnpm start:http` / `dist/http.js`) instead of stdio, it's exposed
+to any client that can reach it over the network. To protect against DNS rebinding attacks, set these
+environment variables:
+
+| Variable | Required | Description |
+|----------|----------|--------------|
+| `MCP_ALLOWED_HOSTS` | no (but strongly recommended for public deployments) | Comma-separated list of allowed `Host` header values. Must match the header **exactly**, including the port if the server isn't reachable on the default HTTP(S) port. |
+| `MCP_ALLOWED_ORIGINS` | no | Comma-separated list of allowed `Origin` header values. Only enforced when `MCP_ALLOWED_ORIGINS` is set together with `MCP_ALLOWED_HOSTS`. |
+
+Production example:
+
+```bash
+MCP_ALLOWED_HOSTS=mcp.honeyfield.at
+```
+
+**This protection is opt-in.** If `MCP_ALLOWED_HOSTS` is not set, the server starts as before and logs
+a one-line startup warning (`MCP_ALLOWED_HOSTS not set — DNS rebinding protection disabled`). Any public
+deployment should set `MCP_ALLOWED_HOSTS` to its public hostname(s).
+
 ## Tool Reference
 
 ### eurlex_search

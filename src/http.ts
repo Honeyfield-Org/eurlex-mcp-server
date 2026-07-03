@@ -8,6 +8,19 @@ import rateLimit from 'express-rate-limit';
 import { SESSION_TTL_MS } from './constants.js';
 import { createServer } from './server.js';
 
+/**
+ * Parses a comma-separated env var into a trimmed, non-empty list of entries.
+ * Returns undefined when the env var is unset or contains no usable entries.
+ */
+function parseHostList(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const entries = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return entries.length > 0 ? entries : undefined;
+}
+
 // Rate limiting: each MCP request triggers upstream EUR-Lex API calls
 export const mcpLimiter = rateLimit({
   windowMs: 60_000,
@@ -27,6 +40,17 @@ export function createApp(): {
   const app = express();
   app.use(express.json());
   app.use('/mcp', mcpLimiter);
+
+  // DNS rebinding protection is strictly opt-in via MCP_ALLOWED_HOSTS: this server
+  // is deployed publicly (mcp.honeyfield.at) with no auth, and defaulting protection
+  // on would break existing deployments whose env doesn't set it yet.
+  const allowedHosts = parseHostList(process.env.MCP_ALLOWED_HOSTS);
+  const allowedOrigins = parseHostList(process.env.MCP_ALLOWED_ORIGINS);
+  const dnsRebindingProtectionEnabled = allowedHosts !== undefined;
+
+  if (!dnsRebindingProtectionEnabled) {
+    console.warn('MCP_ALLOWED_HOSTS not set — DNS rebinding protection disabled');
+  }
 
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const lastSeen = new Map<string, number>();
@@ -79,6 +103,11 @@ export function createApp(): {
         transports.set(sid, transport);
         lastSeen.set(sid, Date.now());
       },
+      ...(dnsRebindingProtectionEnabled && {
+        enableDnsRebindingProtection: true,
+        allowedHosts,
+        ...(allowedOrigins && { allowedOrigins }),
+      }),
     });
 
     transport.onclose = (): void => {
