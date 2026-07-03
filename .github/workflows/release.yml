@@ -26,7 +26,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -42,10 +41,9 @@ jobs:
         with:
           generate_release_notes: true
 
+      # Auth via npm Trusted Publishing (OIDC, id-token: write) — no token needed
       - name: Publish to npm
         run: pnpm publish --provenance --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   deploy-lightsail:
     name: Deploy to Lightsail
