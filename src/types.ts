@@ -19,29 +19,43 @@ export interface FetchResult {
   celex_id: string;
   language: string;
   content: string;
+  /** True when more content remains beyond `offset + returned_chars`. */
   truncated: boolean;
-  char_count: number;
+  /** Length of `content` in this response. */
+  returned_chars: number;
+  /** Length of the full processed (post-strip) document. */
+  total_chars: number;
+  /** The offset this response was sliced from. */
+  offset: number;
+  /** Offset to request next to continue reading, or `null` when there is no more content. */
+  next_offset: number | null;
   source_url: string;
 }
 
 export interface SearchToolOutput {
   results: SearchResult[];
   total: number;
-  query_used: string;
 }
 
 export interface MetadataResult {
   celex_id: string;
   title: string;
-  date_document: string;
-  date_entry_into_force: string;
-  date_end_of_validity: string;
+  /** ISO date, or null when absent. */
+  date_document: string | null;
+  /** ISO date, or null when absent. */
+  date_entry_into_force: string | null;
+  /** ISO date, or null when absent OR when it is the Cellar `9999-12-31` sentinel. */
+  date_end_of_validity: string | null;
   in_force: boolean | null;
-  date_transposition: string;
+  /** ISO date, or null when absent. */
+  date_transposition: string | null;
   resource_type: string;
   authors: string[];
   eurovoc_concepts: string[];
+  /** Directory-code entries as `"{code-tail}: {label}"`, or the bare code tail when unlabelled. */
   directory_codes: string[];
+  /** CELEX IDs of the legal acts this act is based on (its legal basis). */
+  legal_basis: string[];
   eurlex_url: string;
 }
 
@@ -66,6 +80,12 @@ export interface CitationsResult {
   celex_id: string;
   citations: CitationEntry[];
   total: number;
+  /**
+   * How the returned citations split across the two directions.
+   * `cites` counts cites/based_on/amends/repeals rows (this act references others);
+   * `cited_by` counts the inverse rows (other acts reference this one).
+   */
+  counts: { cites: number; cited_by: number };
 }
 
 export interface ConsolidatedResult {
@@ -74,7 +94,19 @@ export interface ConsolidatedResult {
   number: number;
   language: string;
   content: string;
+  /** True when more content remains beyond `offset + returned_chars`. */
   truncated: boolean;
-  char_count: number;
+  /** Length of `content` in this response. */
+  returned_chars: number;
+  /** Length of the full processed (post-strip) document. */
+  total_chars: number;
+  /** The offset this response was sliced from. */
+  offset: number;
+  /** Offset to request next to continue reading, or `null` when there is no more content. */
+  next_offset: number | null;
   eli_url: string;
+  /** The resolved consolidated CELEX ID, e.g. "02016R0679-20160504". */
+  consolidated_celex: string;
+  /** ISO date parsed from the CELEX's "-YYYYMMDD" suffix, or `null` when absent. */
+  consolidation_date: string | null;
 }

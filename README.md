@@ -23,11 +23,13 @@ Ask your AI assistant questions like:
 
 - **6 specialized tools** for searching, fetching, and analyzing EU legal documents
 - **EuroVoc thesaurus search** -- find documents by EU taxonomy concepts
-- **Consolidated versions** -- retrieve the latest in-force text of regulations, directives, and decisions
-- **Citation graph** -- explore which documents cite or are cited by a given act
-- **Structured metadata** -- access dates, EuroVoc descriptors, legal basis, and more
+- **Consolidated versions** -- retrieve the latest in-force text of regulations, directives, and decisions, identified by CELEX ID or by doc type + year + number
+- **Citation graph** -- explore which documents cite or are cited by a given act, with a balanced split between the two directions
+- **Structured metadata** -- dates (with `null` instead of Cellar's `9999-12-31` sentinel for open-ended validity), in-force status, authors, legal basis, EuroVoc descriptors, and directory codes
+- **Offset-based pagination** -- `eurlex_fetch` and `eurlex_consolidated` return `next_offset` so long documents can be read in successive calls
 - **Multi-language** -- supports English, German, and French
 - **No API key required** -- uses the public EUR-Lex Cellar SPARQL endpoint
+- **Resilient by default** -- automatic retry with backoff on transient Cellar errors, and in-process caching of EuroVoc labels, consolidated-CELEX lookups, and metadata to cut latency on repeat requests
 
 ## Quick Start
 
@@ -109,15 +111,38 @@ Add to `~/.windsurf/mcp.json`:
 }
 ```
 
+### HTTP Transport (Remote Deployments)
+
+When running the server over HTTP (`pnpm start:http` / `dist/http.js`) instead of stdio, it's exposed
+to any client that can reach it over the network. To protect against DNS rebinding attacks, set these
+environment variables:
+
+| Variable | Required | Description |
+|----------|----------|--------------|
+| `MCP_ALLOWED_HOSTS` | no (but strongly recommended for public deployments) | Comma-separated list of allowed `Host` header values. Must match the header **exactly**, including the port if the server isn't reachable on the default HTTP(S) port. |
+| `MCP_ALLOWED_ORIGINS` | no | Comma-separated list of allowed `Origin` header values. Only enforced when `MCP_ALLOWED_ORIGINS` is set together with `MCP_ALLOWED_HOSTS`. |
+
+**Important:** If your server runs behind a reverse proxy or load balancer, ensure it forwards the original `Host` header unmodified (e.g. nginx `proxy_set_header Host $host;`), otherwise `MCP_ALLOWED_HOSTS` validation will reject all legitimate traffic — the SDK compares the raw Host header as an exact string.
+
+Production example:
+
+```bash
+MCP_ALLOWED_HOSTS=mcp.honeyfield.at
+```
+
+**This protection is opt-in.** If `MCP_ALLOWED_HOSTS` is not set, the server starts as before and logs
+a one-line startup warning (`MCP_ALLOWED_HOSTS not set — DNS rebinding protection disabled`). Any public
+deployment should set `MCP_ALLOWED_HOSTS` to its public hostname(s).
+
 ## Tool Reference
 
 ### eurlex_search
 
-Full-text search across EUR-Lex documents.
+Searches EU legal acts by **title substring** -- a contiguous, case-insensitive phrase match against the document title, not tokenized full-text search. For thematic discovery (the term may not appear in the title) use `eurlex_by_eurovoc` instead. Results are sorted newest-first *within the fetched sample*: for very broad single-word queries this is not guaranteed to be the globally newest match -- narrow with `resource_type` or `date_from`/`date_to` if that matters. The response no longer echoes the internal SPARQL query.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | yes | -- | Search term (3-500 chars), e.g. `"artificial intelligence high risk"` |
+| `query` | string | yes | -- | Title substring to match (3-500 chars), e.g. `"artificial intelligence high risk"` |
 | `resource_type` | string | no | `"any"` | Document type filter: `REG`, `DIR`, `DEC`, `JUDG`, `REG_IMPL`, `REG_DEL`, `DIR_IMPL`, `DIR_DEL`, `DEC_IMPL`, `DEC_DEL`, `ORDER`, `OPIN_AG`, `RECO`, `any` |
 | `language` | string | no | `"DEU"` | Language for titles and full text: `DEU`, `ENG`, `FRA` |
 | `limit` | number | no | `10` | Max results (1-50) |
@@ -126,27 +151,34 @@ Full-text search across EUR-Lex documents.
 
 ### eurlex_fetch
 
-Retrieve the full text of a document by its CELEX identifier.
+Retrieve the full text of a document by its CELEX identifier. Long documents are paginated: the response includes `returned_chars`, `total_chars`, and `next_offset` (pass it as the next call's `offset` to keep reading; `next_offset` is `null` once there's nothing left).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `celex_id` | string | yes | -- | CELEX identifier, e.g. `"32024R1689"` for the AI Act |
 | `language` | string | no | `"DEU"` | Language: `DEU`, `ENG`, `FRA` |
-| `format` | string | no | `"xhtml"` | Output format: `xhtml` (structured) or `plain` (tags stripped) |
-| `max_chars` | number | no | `20000` | Max characters returned (1000-50000) |
+| `format` | string | no | `"xhtml"` | Output format: `xhtml` (structured) or `plain` (tags stripped, whitespace collapsed, entities decoded) |
+| `max_chars` | number | no | `20000` | Max characters returned per call (1000-50000) |
+| `offset` | number | no | `0` | Character offset into the processed document, for pagination |
 
 ### eurlex_metadata
 
-Retrieve structured metadata for a document (dates, EuroVoc descriptors, legal basis, etc.).
+Retrieve structured metadata for a document: document/entry-into-force/end-of-validity dates, in-force status, authors, legal basis, EuroVoc descriptors, and directory codes.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `celex_id` | string | yes | -- | CELEX identifier, e.g. `"32024R1689"` |
 | `language` | string | no | `"DEU"` | Language for titles and EuroVoc labels: `DEU`, `ENG`, `FRA` |
 
+Notes on the response:
+- `authors` lists the resolved agent names (e.g. "European Parliament", "Council of the European Union") instead of an empty array.
+- `legal_basis` lists the CELEX IDs of the acts this document is based on.
+- Date fields (`date_document`, `date_entry_into_force`, `date_end_of_validity`, `date_transposition`) are `null` when absent -- including Cellar's `9999-12-31` sentinel for acts with no defined end of validity, which is normalized to `null`.
+- `directory_codes` are human-readable (`"{code-tail}: {label}"`, where `code-tail` is the fragment after the last `/` of the directory-code URI), not raw URIs.
+
 ### eurlex_citations
 
-Explore the citation graph of a document -- which acts it cites and which acts cite it.
+Explore the citation graph of a document -- which acts it cites, which acts cite it, and amends/based-on/repeals relations.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -154,6 +186,8 @@ Explore the citation graph of a document -- which acts it cites and which acts c
 | `language` | string | no | `"DEU"` | Language for titles: `DEU`, `ENG`, `FRA` |
 | `direction` | string | no | `"both"` | `cites` (outgoing), `cited_by` (incoming), or `both` |
 | `limit` | number | no | `20` | Max results (1-100) |
+
+With `direction: "both"`, the two directions are queried and split evenly (roughly `limit / 2` each) so that a burst of recent `cited_by` entries can't crowd out `cites` results. The response includes a `counts: { cites, cited_by }` object reporting how many of each were actually found.
 
 ### eurlex_by_eurovoc
 
@@ -168,16 +202,20 @@ Find documents by EuroVoc thesaurus concept (label or URI).
 
 ### eurlex_consolidated
 
-Retrieve the consolidated (in-force) version of a regulation, directive, or decision.
+Retrieve the consolidated (in-force) version of a regulation, directive, or decision. Identify the act with **either** `celex_id` **or** `doc_type` + `year` + `number` -- provide exactly one of the two forms. Like `eurlex_fetch`, the content is paginated via `offset`/`max_chars`/`next_offset`. The response also includes `consolidated_celex` (e.g. `"02016R0679-20160504"`) and `consolidation_date` (`"2016-05-04"`, parsed from that CELEX's date suffix; `null` if the resolved CELEX has none).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `doc_type` | string | yes | -- | Document type: `reg` (regulation), `dir` (directive), `dec` (decision) |
-| `year` | number | yes | -- | Year of the act (1950-2100), e.g. `2024` |
-| `number` | number | yes | -- | Document number, e.g. `1689` |
+| `celex_id` | string | no* | -- | CELEX ID of the original act, e.g. `"32016R0679"` (GDPR). Alternative to `doc_type`+`year`+`number`; must be a sector-3 CELEX (`3YYYY[R\|L\|D]NNNN`) |
+| `doc_type` | string | no* | -- | Document type: `reg` (regulation), `dir` (directive), `dec` (decision). Alternative to `celex_id`; provide together with `year` and `number` |
+| `year` | number | no* | -- | Year of the act (1950-2100), e.g. `2024`. Required together with `doc_type` and `number` when `celex_id` is not used |
+| `number` | number | no* | -- | Document number, e.g. `1689`. Required together with `doc_type` and `year` when `celex_id` is not used |
 | `language` | string | no | `"DEU"` | Language: `DEU`, `ENG`, `FRA` |
 | `format` | string | no | `"xhtml"` | Output format: `xhtml` or `plain` |
-| `max_chars` | number | no | `20000` | Max characters returned (1000-50000) |
+| `max_chars` | number | no | `20000` | Max characters returned per call (1000-50000) |
+| `offset` | number | no | `0` | Character offset into the processed document, for pagination |
+
+\* Exactly one of `celex_id` or the `doc_type`+`year`+`number` triple must be provided.
 
 ## CELEX Number Schema
 
@@ -235,8 +273,9 @@ pnpm test:integration  # integration tests (hits real API)
 - **Rate limits**: The EUR-Lex Cellar API is public but may throttle excessive requests.
 - **Document availability**: Not all documents have full text in all languages.
 - **Consolidated versions**: Only available for regulations, directives, and decisions.
-- **Response size**: Full text is truncated at `max_chars` (default 20,000 characters) to stay within LLM context limits.
-- **SPARQL timeouts**: Complex EuroVoc queries may occasionally time out on the Cellar endpoint.
+- **Response size**: Full text is returned per call in `max_chars` slices (default 20,000 characters) to stay within LLM context limits -- use `offset`/`next_offset` on `eurlex_fetch`/`eurlex_consolidated` to read the rest.
+- **SPARQL timeouts**: Complex queries may occasionally time out on the Cellar endpoint despite the built-in retry with backoff; narrow broad `eurlex_search`/`eurlex_by_eurovoc` queries with `resource_type` or date filters if this happens.
+- **Search ordering**: `eurlex_search` results are sorted newest-first within the fetched sample only -- for very broad queries this is not guaranteed to be the single globally newest match.
 
 ## Contributing
 

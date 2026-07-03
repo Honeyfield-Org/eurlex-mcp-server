@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockCitationsQuery = vi.fn()
+const { mockCitationsQuery } = vi.hoisted(() => ({ mockCitationsQuery: vi.fn() }))
 vi.mock('../src/services/cellarClient.js', () => ({
-  CellarClient: vi.fn().mockImplementation(() => ({
-    citationsQuery: mockCitationsQuery,
-  })),
+  CellarClient: vi.fn(),
+  sharedCellarClient: { citationsQuery: mockCitationsQuery },
 }))
 
 import { handleEurlexCitations } from '../src/tools/citations.js'
@@ -48,7 +47,7 @@ describe('handleEurlexCitations()', () => {
     })
 
     expect(result.isError).toBeUndefined()
-    expect(result.content[0].text).toContain('Keine Zitierungen gefunden')
+    expect(result.content[0].text).toContain('No citations found')
     expect(result.content[0].text).toContain('99999X9999')
   })
 

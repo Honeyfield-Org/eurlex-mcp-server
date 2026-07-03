@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockEurovocQuery = vi.fn()
+const { mockEurovocQuery } = vi.hoisted(() => ({ mockEurovocQuery: vi.fn() }))
 vi.mock('../src/services/cellarClient.js', () => ({
-  CellarClient: vi.fn().mockImplementation(() => ({
-    eurovocQuery: mockEurovocQuery,
-  })),
+  CellarClient: vi.fn(),
+  sharedCellarClient: { eurovocQuery: mockEurovocQuery },
 }))
 
 import { handleEurlexByEurovoc } from '../src/tools/eurovoc.js'
@@ -41,7 +40,7 @@ describe('handleEurlexByEurovoc()', () => {
       limit: 10,
     })
 
-    expect(result.content[0].text).toContain('Keine Ergebnisse')
+    expect(result.content[0].text).toContain('No results')
   })
 
   it('E11 – returns isError on failure', async () => {

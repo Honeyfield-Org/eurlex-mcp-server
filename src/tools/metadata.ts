@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { metadataSchema } from '../schemas/metadataSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import { toolError } from '../utils.js';
 
 export async function handleEurlexMetadata(input: {
@@ -9,9 +9,7 @@ export async function handleEurlexMetadata(input: {
   language: string;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const parsed = metadataSchema.parse(input);
-    const client = new CellarClient();
-    const result = await client.metadataQuery(parsed.celex_id, parsed.language);
+    const result = await sharedCellarClient.metadataQuery(input.celex_id, input.language);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     };
@@ -23,9 +21,15 @@ export async function handleEurlexMetadata(input: {
 export function registerMetadataTool(server: McpServer): void {
   server.tool(
     'eurlex_metadata',
-    'Ruft detaillierte Metadaten eines EU-Rechtsakts per CELEX-ID ab (Daten, Autoren, EuroVoc, Directory-Codes)',
+    'Fetches metadata for an EU legal act by CELEX ID: document/entry-into-force/end-of-validity dates, in-force status, authors, legal basis (CELEX IDs of the acts it is based on), EuroVoc descriptors, and directory codes.',
     metadataSchema.shape,
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'Get EU legal act metadata',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (params) => handleEurlexMetadata(params),
   );
 }

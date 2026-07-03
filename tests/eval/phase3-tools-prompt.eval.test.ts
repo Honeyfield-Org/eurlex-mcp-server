@@ -158,7 +158,7 @@ describe('Phase 3 Eval – Tools + Prompt', () => {
   // eurlex_guide prompt content
   // -------------------------------------------------------------------------
   describe('eurlex_guide prompt content', () => {
-    it('contains key sections: CELEX, Suchstrategie, 32024R1689', async () => {
+    it('contains key sections: CELEX, Search strategy, 32024R1689', async () => {
       // Use a mock server to capture the prompt content
       let capturedCallback: (() => any) | undefined
 
@@ -177,7 +177,7 @@ describe('Phase 3 Eval – Tools + Prompt', () => {
       const text = result.messages[0].content.text
 
       expect(text).toContain('CELEX')
-      expect(text).toContain('Suchstrategie')
+      expect(text).toContain('Search strategy')
       expect(text).toContain('32024R1689')
     })
   })

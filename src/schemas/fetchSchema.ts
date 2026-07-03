@@ -7,19 +7,25 @@ export const fetchSchema = z
     celex_id: z
       .string()
       .regex(CELEX_REGEX)
-      .describe("CELEX-Identifier, z.B. '32024R1689' für den AI Act"),
-    language: z.enum(['DEU', 'ENG', 'FRA']).default('DEU').describe('Sprache des Volltexts'),
+      .describe("CELEX identifier, e.g. '32024R1689' for the AI Act"),
+    language: z.enum(['DEU', 'ENG', 'FRA']).default('DEU').describe('Language of the full text'),
     format: z
       .enum(['xhtml', 'plain'])
       .default('xhtml')
-      .describe('Ausgabeformat: xhtml=strukturiertes XHTML, plain=Text (XHTML-Tags entfernt)'),
+      .describe('Output format: xhtml=structured XHTML, plain=text with XHTML tags stripped'),
     max_chars: z
       .number()
       .int()
       .min(1000)
       .max(50000)
       .default(20000)
-      .describe('Maximale Zeichenanzahl des zurückgegebenen Texts'),
+      .describe('Maximum number of characters returned'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe('Character offset for pagination (0-based)'),
   })
   .strict();
 

@@ -76,8 +76,12 @@ describe('Phase 5 – Smoke Tests', () => {
     expect(pair1.server).not.toBe(pair2.server)
   })
 
-  // Annotations: both tools have readOnlyHint: true, destructiveHint: false
-  it('eurlex_search has annotations readOnlyHint=true, destructiveHint=false', async () => {
+  // Annotations: all tools have title, readOnlyHint: true, destructiveHint:
+  // false, idempotentHint: true, openWorldHint: true (Task 5). This exercises
+  // the real McpServer/Client round trip (registerXTool → tools/list), which
+  // is the authoritative way to confirm the SDK actually surfaces `title`
+  // from the annotations object (SDK 1.x supports it — see ToolAnnotations).
+  it('eurlex_search has title, full annotation set, and a self-contained description', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
@@ -85,11 +89,16 @@ describe('Phase 5 – Smoke Tests', () => {
     const search = tools.find((t) => t.name === 'eurlex_search')
 
     expect(search?.annotations).toBeDefined()
+    expect(search?.annotations?.title).toBe('Search EU law by title')
     expect(search?.annotations?.readOnlyHint).toBe(true)
     expect(search?.annotations?.destructiveHint).toBe(false)
+    expect(search?.annotations?.idempotentHint).toBe(true)
+    expect(search?.annotations?.openWorldHint).toBe(true)
+    expect(search?.description).toContain('title')
+    expect(search?.description).toContain('eurlex_by_eurovoc')
   })
 
-  it('eurlex_fetch has annotations readOnlyHint=true, destructiveHint=false', async () => {
+  it('eurlex_fetch has title, full annotation set, and a self-contained description', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
@@ -97,11 +106,15 @@ describe('Phase 5 – Smoke Tests', () => {
     const fetch = tools.find((t) => t.name === 'eurlex_fetch')
 
     expect(fetch?.annotations).toBeDefined()
+    expect(fetch?.annotations?.title).toBe('Fetch EU legal act full text')
     expect(fetch?.annotations?.readOnlyHint).toBe(true)
     expect(fetch?.annotations?.destructiveHint).toBe(false)
+    expect(fetch?.annotations?.idempotentHint).toBe(true)
+    expect(fetch?.annotations?.openWorldHint).toBe(true)
+    expect(fetch?.description).toContain('offset')
   })
 
-  it('eurlex_metadata has annotations readOnlyHint=true, destructiveHint=false', async () => {
+  it('eurlex_metadata has title, full annotation set, and a self-contained description', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
@@ -109,11 +122,16 @@ describe('Phase 5 – Smoke Tests', () => {
     const metadata = tools.find((t) => t.name === 'eurlex_metadata')
 
     expect(metadata?.annotations).toBeDefined()
+    expect(metadata?.annotations?.title).toBe('Get EU legal act metadata')
     expect(metadata?.annotations?.readOnlyHint).toBe(true)
     expect(metadata?.annotations?.destructiveHint).toBe(false)
+    expect(metadata?.annotations?.idempotentHint).toBe(true)
+    expect(metadata?.annotations?.openWorldHint).toBe(true)
+    expect(metadata?.description).toContain('legal basis')
+    expect(metadata?.description).toContain('authors')
   })
 
-  it('eurlex_by_eurovoc has annotations readOnlyHint=true, destructiveHint=false', async () => {
+  it('eurlex_by_eurovoc has title, full annotation set, and a self-contained description', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
@@ -121,11 +139,15 @@ describe('Phase 5 – Smoke Tests', () => {
     const eurovoc = tools.find((t) => t.name === 'eurlex_by_eurovoc')
 
     expect(eurovoc?.annotations).toBeDefined()
+    expect(eurovoc?.annotations?.title).toBe('Search EU law by topic')
     expect(eurovoc?.annotations?.readOnlyHint).toBe(true)
     expect(eurovoc?.annotations?.destructiveHint).toBe(false)
+    expect(eurovoc?.annotations?.idempotentHint).toBe(true)
+    expect(eurovoc?.annotations?.openWorldHint).toBe(true)
+    expect(eurovoc?.description).toContain('EuroVoc')
   })
 
-  it('eurlex_citations has annotations readOnlyHint=true, destructiveHint=false', async () => {
+  it('eurlex_citations has title, full annotation set, and a self-contained description', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
@@ -133,11 +155,15 @@ describe('Phase 5 – Smoke Tests', () => {
     const citations = tools.find((t) => t.name === 'eurlex_citations')
 
     expect(citations?.annotations).toBeDefined()
+    expect(citations?.annotations?.title).toBe('Find EU legal act citations')
     expect(citations?.annotations?.readOnlyHint).toBe(true)
     expect(citations?.annotations?.destructiveHint).toBe(false)
+    expect(citations?.annotations?.idempotentHint).toBe(true)
+    expect(citations?.annotations?.openWorldHint).toBe(true)
+    expect(citations?.description).toContain('counts')
   })
 
-  it('eurlex_consolidated has annotations readOnlyHint=true, destructiveHint=false', async () => {
+  it('eurlex_consolidated has title, full annotation set, and a self-contained description', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
@@ -145,8 +171,12 @@ describe('Phase 5 – Smoke Tests', () => {
     const consolidated = tools.find((t) => t.name === 'eurlex_consolidated')
 
     expect(consolidated?.annotations).toBeDefined()
+    expect(consolidated?.annotations?.title).toBe('Get consolidated EU legal act')
     expect(consolidated?.annotations?.readOnlyHint).toBe(true)
     expect(consolidated?.annotations?.destructiveHint).toBe(false)
+    expect(consolidated?.annotations?.idempotentHint).toBe(true)
+    expect(consolidated?.annotations?.openWorldHint).toBe(true)
+    expect(consolidated?.description).toContain('celex_id')
   })
 
   // V22: eurlex_guide Prompt abrufbar → server has eurlex_guide prompt registered

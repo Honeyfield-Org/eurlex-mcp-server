@@ -9,14 +9,14 @@ export const eurovocSchema = z
       .min(2)
       .max(500)
       .describe(
-        "EuroVoc-Konzept: Label (z.B. 'artificial intelligence') oder URI (z.B. 'http://eurovoc.europa.eu/4424')",
+        "EuroVoc concept: a label (e.g. 'artificial intelligence') or a URI (e.g. 'http://eurovoc.europa.eu/4424')",
       ),
-    resource_type: z.enum(RESOURCE_TYPES).default('any').describe('Dokumenttyp-Filter'),
+    resource_type: z.enum(RESOURCE_TYPES).default('any').describe('Document type filter'),
     language: z
       .enum(['DEU', 'ENG', 'FRA'])
       .default('DEU')
-      .describe('Sprache für Titel und EuroVoc-Labels'),
-    limit: z.number().int().min(1).max(50).default(10).describe('Max. Ergebnisse'),
+      .describe('Language of the title and EuroVoc labels'),
+    limit: z.number().int().min(1).max(50).default(10).describe('Maximum number of results'),
   })
   .strict();
 

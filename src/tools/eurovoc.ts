@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { eurovocSchema } from '../schemas/eurovocSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import { toolError } from '../utils.js';
 
 export async function handleEurlexByEurovoc(input: {
@@ -11,13 +11,11 @@ export async function handleEurlexByEurovoc(input: {
   limit: number;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const parsed = eurovocSchema.parse(input);
-    const client = new CellarClient();
-    const results = await client.eurovocQuery(
-      parsed.concept,
-      parsed.resource_type,
-      parsed.language,
-      parsed.limit,
+    const results = await sharedCellarClient.eurovocQuery(
+      input.concept,
+      input.resource_type,
+      input.language,
+      input.limit,
     );
 
     if (results.length === 0) {
@@ -25,7 +23,7 @@ export async function handleEurlexByEurovoc(input: {
         content: [
           {
             type: 'text' as const,
-            text: `Keine Ergebnisse für EuroVoc-Konzept "${parsed.concept}"`,
+            text: `No results for EuroVoc concept "${input.concept}"`,
           },
         ],
       };
@@ -47,9 +45,15 @@ export async function handleEurlexByEurovoc(input: {
 export function registerEurovocTool(server: McpServer): void {
   server.tool(
     'eurlex_by_eurovoc',
-    'Sucht EU-Rechtsakte nach EuroVoc-Thema (z.B. "artificial intelligence", "data protection")',
+    'Searches EU legal acts by EuroVoc thematic concept — the right tool for "documents about X" when the term may not appear in the title. Accepts a concept label (e.g. "artificial intelligence") or a EuroVoc URI.',
     eurovocSchema.shape,
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'Search EU law by topic',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (params) => handleEurlexByEurovoc(params),
   );
 }

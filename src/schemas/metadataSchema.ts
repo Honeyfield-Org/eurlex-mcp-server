@@ -7,11 +7,11 @@ export const metadataSchema = z
     celex_id: z
       .string()
       .regex(CELEX_REGEX)
-      .describe("CELEX-Identifier, z.B. '32024R1689' für den AI Act"),
+      .describe("CELEX identifier, e.g. '32024R1689' for the AI Act"),
     language: z
       .enum(['DEU', 'ENG', 'FRA'])
       .default('DEU')
-      .describe('Sprache für Titel und EuroVoc-Labels'),
+      .describe('Language of the title and EuroVoc labels'),
   })
   .strict();
 

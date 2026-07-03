@@ -1,7 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { searchSchema } from '../schemas/searchSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
+import type { SearchToolOutput } from '../types.js';
 import { toolError } from '../utils.js';
 
 export async function handleEurlexSearch(input: {
@@ -13,8 +14,7 @@ export async function handleEurlexSearch(input: {
   date_to?: string;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const client = new CellarClient();
-    const { results, sparql } = await client.sparqlQuery(input.query, {
+    const { results } = await sharedCellarClient.sparqlQuery(input.query, {
       resource_type: input.resource_type,
       language: input.language,
       limit: input.limit,
@@ -24,15 +24,17 @@ export async function handleEurlexSearch(input: {
 
     if (results.length === 0) {
       return {
-        content: [{ type: 'text' as const, text: `Keine Ergebnisse für "${input.query}"` }],
+        content: [{ type: 'text' as const, text: `No results for "${input.query}"` }],
       };
     }
+
+    const output: SearchToolOutput = { results, total: results.length };
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify({ results, total: results.length, query_used: sparql }),
+          text: JSON.stringify(output),
         },
       ],
     };
@@ -44,9 +46,15 @@ export async function handleEurlexSearch(input: {
 export function registerSearchTool(server: McpServer): void {
   server.tool(
     'eurlex_search',
-    'Sucht EU-Rechtsakte nach Titel via EUR-Lex SPARQL',
+    'Searches EU legal acts by title substring (contiguous phrase, case-insensitive — not tokenized full-text search). For topic-based discovery use eurlex_by_eurovoc instead. Broad single-word terms can be slow; narrow with resource_type or date_from/date_to. Supported languages: German, English, French. Results are newest-first within the fetched sample, not necessarily the globally newest match for very broad queries.',
     searchSchema.shape,
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'Search EU law by title',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (params) => handleEurlexSearch(params),
   );
 }

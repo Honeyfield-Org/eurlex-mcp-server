@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { createServer } from '../../src/index.js'
+import { createServer } from '../../src/server.js'
 
 // ---------------------------------------------------------------------------
 // Helper: spin up a server + client pair over in-memory transport
@@ -107,7 +107,7 @@ describe('Phase 4 Eval – Server', () => {
 
     const text = result.messages[0].content as { type: string; text: string }
     expect(text.text).toContain('CELEX')
-    expect(text.text).toContain('Suchstrategie')
+    expect(text.text).toContain('Search strategy')
     expect(text.text).toContain('32024R1689')
   })
 })

@@ -73,15 +73,16 @@ describe('sparqlQuery()', () => {
     expect(results).toEqual([])
   })
 
-  it('T3 – throws error on HTTP 500', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
-    })
+  it('T3 – throws error on HTTP 500 (after exhausting retries)', async () => {
+    // 5xx is retryable: 1 initial attempt + 2 retries = 3 total calls
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
 
-    const client = new CellarClient()
+    const client = new CellarClient({ retryDelayFn: async () => {} })
     await expect(client.sparqlQuery('test')).rejects.toThrow('SPARQL endpoint error: 500')
+    expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 
   it('T4 – throws error on network failure', async () => {
@@ -270,28 +271,29 @@ describe('buildSparqlQuery() – date_to', () => {
 // Test T14c: fetchDocument non-404 errors
 // ===========================================================================
 describe('fetchDocument() – non-404 errors', () => {
-  it('T14c – throws "Fetch error: 500" on HTTP 500', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
-    })
+  it('T14c – throws "Fetch error: 500" on HTTP 500 (after exhausting retries)', async () => {
+    // 5xx is retryable: 1 initial attempt + 2 retries = 3 total calls
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
 
-    const client = new CellarClient()
+    const client = new CellarClient({ retryDelayFn: async () => {} })
     await expect(client.fetchDocument('32021R0694', 'DEU'))
       .rejects.toThrow('Fetch error: 500')
+    expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 
-  it('T14d – throws "Fetch error: 503" on HTTP 503', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 503,
-      statusText: 'Service Unavailable',
-    })
+  it('T14d – throws "Fetch error: 503" on HTTP 503 (after exhausting retries)', async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' })
+      .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' })
+      .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' })
 
-    const client = new CellarClient()
+    const client = new CellarClient({ retryDelayFn: async () => {} })
     await expect(client.fetchDocument('32021R0694', 'DEU'))
       .rejects.toThrow('Fetch error: 503')
+    expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 })
 
@@ -404,14 +406,17 @@ describe('fetch timeout', () => {
   })
 
   it('citationsQuery passes AbortSignal to fetch', async () => {
-    mockFetch.mockResolvedValueOnce({
+    // direction 'both' issues two SPARQL POSTs (cites + cited_by) in parallel,
+    // so use a persistent mock that answers every call.
+    mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({ results: { bindings: [] } }),
     })
     const client = new CellarClient()
     await client.citationsQuery('32021R0694', 'DEU', 'both', 10)
-    const callArgs = mockFetch.mock.calls[0]
-    expect(callArgs[1].signal).toBeDefined()
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(mockFetch.mock.calls[0][1].signal).toBeDefined()
+    expect(mockFetch.mock.calls[1][1].signal).toBeDefined()
   })
 
   it('eurovocQuery passes AbortSignal to fetch (URI path)', async () => {

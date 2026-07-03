@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { citationsSchema } from '../schemas/citationsSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import { toolError } from '../utils.js';
 
 export async function handleEurlexCitations(input: {
@@ -11,13 +11,11 @@ export async function handleEurlexCitations(input: {
   limit: number;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const parsed = citationsSchema.parse(input);
-    const client = new CellarClient();
-    const result = await client.citationsQuery(
-      parsed.celex_id,
-      parsed.language,
-      parsed.direction,
-      parsed.limit,
+    const result = await sharedCellarClient.citationsQuery(
+      input.celex_id,
+      input.language,
+      input.direction,
+      input.limit,
     );
 
     if (result.citations.length === 0) {
@@ -25,7 +23,7 @@ export async function handleEurlexCitations(input: {
         content: [
           {
             type: 'text' as const,
-            text: `Keine Zitierungen gefunden für CELEX: ${parsed.celex_id}`,
+            text: `No citations found for CELEX: ${input.celex_id}`,
           },
         ],
       };
@@ -47,9 +45,15 @@ export async function handleEurlexCitations(input: {
 export function registerCitationsTool(server: McpServer): void {
   server.tool(
     'eurlex_citations',
-    'Findet Zitierungen, Rechtsgrundlagen und Änderungen eines EU-Rechtsakts',
+    'Finds citation relationships for an EU legal act: cites, cited_by, amends/amended_by, based_on/basis_for, repeals/repealed_by. direction="both" runs a balanced split so recent cited_by entries cannot crowd out cites results; the response\'s counts field reports how many of each side were found. The limit is divided evenly between the two directions and is not back-filled from the richer side, so direction="both" can return fewer than `limit` total results even when one side has more matches available.',
     citationsSchema.shape,
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'Find EU legal act citations',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (params) => handleEurlexCitations(params),
   );
 }

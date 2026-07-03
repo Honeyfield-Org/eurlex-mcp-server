@@ -1,7 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
+import { CELLAR_REST_BASE } from '../constants.js';
 import { fetchSchema } from '../schemas/fetchSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
+import type { FetchResult } from '../types.js';
 import { processContent, toolError } from '../utils.js';
 
 export async function handleEurlexFetch(input: {
@@ -9,26 +11,34 @@ export async function handleEurlexFetch(input: {
   language: string;
   format: 'plain' | 'xhtml';
   max_chars: number;
+  offset: number;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const parsed = fetchSchema.parse(input);
+    const raw = await sharedCellarClient.fetchDocument(input.celex_id, input.language);
+    const { content, truncated, returned_chars, total_chars, offset, next_offset } = processContent(
+      raw,
+      input.format,
+      input.max_chars,
+      input.offset,
+    );
 
-    const client = new CellarClient();
-    const raw = await client.fetchDocument(parsed.celex_id, parsed.language);
-    const { content, truncated, charCount } = processContent(raw, parsed.format, parsed.max_chars);
+    const result: FetchResult = {
+      celex_id: input.celex_id,
+      language: input.language,
+      content,
+      truncated,
+      returned_chars,
+      total_chars,
+      offset,
+      next_offset,
+      source_url: `${CELLAR_REST_BASE}/${input.celex_id}`,
+    };
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify({
-            celex_id: parsed.celex_id,
-            language: parsed.language,
-            content,
-            truncated,
-            char_count: charCount,
-            source_url: `https://publications.europa.eu/resource/celex/${parsed.celex_id}`,
-          }),
+          text: JSON.stringify(result),
         },
       ],
     };
@@ -40,9 +50,15 @@ export async function handleEurlexFetch(input: {
 export function registerFetchTool(server: McpServer): void {
   server.tool(
     'eurlex_fetch',
-    'Ruft Volltext eines EU-Rechtsakts per CELEX-ID ab',
+    "Fetches the full text of an EU legal act by CELEX ID. Paginate long documents with offset and max_chars: pass the previous response's next_offset to continue reading until it is null.",
     fetchSchema.shape,
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'Fetch EU legal act full text',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (params) => handleEurlexFetch(params),
   );
 }
