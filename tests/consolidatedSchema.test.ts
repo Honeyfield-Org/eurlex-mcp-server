@@ -52,4 +52,10 @@ describe('consolidatedSchema', () => {
       consolidatedSchema.parse({ doc_type: 'reg', year: 2024, number: 1689, offset: -1 }),
     ).toThrow()
   })
+
+  it('rejects a non-integer offset', () => {
+    expect(() =>
+      consolidatedSchema.parse({ doc_type: 'reg', year: 2024, number: 1689, offset: 1.5 }),
+    ).toThrow()
+  })
 })

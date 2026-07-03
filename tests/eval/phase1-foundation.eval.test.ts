@@ -134,7 +134,10 @@ describe('Phase 1 Eval – Foundation', () => {
         language: 'DEU',
         content: 'content',
         truncated: false,
-        char_count: 7,
+        returned_chars: 7,
+        total_chars: 7,
+        offset: 0,
+        next_offset: null,
         source_url: 'https://example.com',
       }
       expect(result.celex_id).toBe('32020R0001')
