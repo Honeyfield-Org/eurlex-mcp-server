@@ -11,13 +11,12 @@ export async function handleEurlexCitations(input: {
   limit: number;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const parsed = citationsSchema.parse(input);
     const client = new CellarClient();
     const result = await client.citationsQuery(
-      parsed.celex_id,
-      parsed.language,
-      parsed.direction,
-      parsed.limit,
+      input.celex_id,
+      input.language,
+      input.direction,
+      input.limit,
     );
 
     if (result.citations.length === 0) {
@@ -25,7 +24,7 @@ export async function handleEurlexCitations(input: {
         content: [
           {
             type: 'text' as const,
-            text: `Keine Zitierungen gefunden für CELEX: ${parsed.celex_id}`,
+            text: `No citations found for CELEX: ${input.celex_id}`,
           },
         ],
       };
@@ -47,9 +46,15 @@ export async function handleEurlexCitations(input: {
 export function registerCitationsTool(server: McpServer): void {
   server.tool(
     'eurlex_citations',
-    'Findet Zitierungen, Rechtsgrundlagen und Änderungen eines EU-Rechtsakts',
+    'Finds citation relationships for an EU legal act: cites, cited_by, amends/amended_by, based_on/basis_for, repeals/repealed_by. direction="both" runs a balanced split so recent cited_by entries cannot crowd out cites results; the response\'s counts field reports how many of each side were found.',
     citationsSchema.shape,
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'Find EU legal act citations',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (params) => handleEurlexCitations(params),
   );
 }

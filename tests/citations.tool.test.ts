@@ -48,7 +48,7 @@ describe('handleEurlexCitations()', () => {
     })
 
     expect(result.isError).toBeUndefined()
-    expect(result.content[0].text).toContain('Keine Zitierungen gefunden')
+    expect(result.content[0].text).toContain('No citations found')
     expect(result.content[0].text).toContain('99999X9999')
   })
 

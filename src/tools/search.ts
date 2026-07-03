@@ -25,7 +25,7 @@ export async function handleEurlexSearch(input: {
 
     if (results.length === 0) {
       return {
-        content: [{ type: 'text' as const, text: `Keine Ergebnisse für "${input.query}"` }],
+        content: [{ type: 'text' as const, text: `No results for "${input.query}"` }],
       };
     }
 
@@ -47,9 +47,15 @@ export async function handleEurlexSearch(input: {
 export function registerSearchTool(server: McpServer): void {
   server.tool(
     'eurlex_search',
-    'Sucht EU-Rechtsakte nach Titel via EUR-Lex SPARQL',
+    'Searches EU legal acts by title substring (contiguous phrase, case-insensitive — not tokenized full-text search). For topic-based discovery use eurlex_by_eurovoc instead. Broad single-word terms can be slow; narrow with resource_type or date_from/date_to. Supported languages: German, English, French. Results are newest-first within the fetched sample, not necessarily the globally newest match for very broad queries.',
     searchSchema.shape,
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'Search EU law by title',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     async (params) => handleEurlexSearch(params),
   );
 }

@@ -226,11 +226,16 @@ describe('handleEurlexConsolidated()', () => {
   })
 
   it('CO10 – returns isError on failure', async () => {
+    // year/number must be within schema bounds so the request actually
+    // reaches CellarClient.fetchConsolidated() and exercises its rejection
+    // (a previously out-of-range year here silently short-circuited on Zod
+    // validation before ever calling the mock, leaving the queued rejection
+    // unconsumed and leaking into whichever test ran next).
     mockFetchConsolidated.mockRejectedValueOnce(new Error('Not found'))
 
     const result = await handleEurlexConsolidated({
       doc_type: 'reg',
-      year: 9999,
+      year: 2024,
       number: 9999,
       language: 'DEU',
       format: 'xhtml',
@@ -239,6 +244,7 @@ describe('handleEurlexConsolidated()', () => {
     })
 
     expect(result.isError).toBe(true)
+    expect(mockFetchConsolidated).toHaveBeenCalledWith('reg', 2024, 9999, 'DEU')
   })
 
   it('CO-SCHEMA – rejects unknown doc_type via Zod schema validation', async () => {
@@ -254,5 +260,127 @@ describe('handleEurlexConsolidated()', () => {
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toMatch(/Error:/)
+  })
+})
+
+// ===========================================================================
+// Tests: celex_id input (Task 5) — XOR enforcement + CELEX derivation
+// ===========================================================================
+describe('handleEurlexConsolidated() — celex_id input', () => {
+  it('CO-CX1 – derives doc_type=reg/year/number from a sector-3 "R" CELEX and calls fetchConsolidated with them', async () => {
+    mockFetchConsolidated.mockResolvedValueOnce(
+      mockResult('<p>GDPR</p>', undefined, '02016R0679-20160504'),
+    )
+
+    const result = await handleEurlexConsolidated({
+      celex_id: '32016R0679',
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(mockFetchConsolidated).toHaveBeenCalledWith('reg', 2016, 679, 'DEU')
+    const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.doc_type).toBe('reg')
+    expect(parsed.year).toBe(2016)
+    expect(parsed.number).toBe(679)
+  })
+
+  it('CO-CX2 – derives doc_type=dir from an "L" CELEX', async () => {
+    mockFetchConsolidated.mockResolvedValueOnce(mockResult('<p>NIS2</p>'))
+
+    await handleEurlexConsolidated({
+      celex_id: '32022L2555',
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(mockFetchConsolidated).toHaveBeenCalledWith('dir', 2022, 2555, 'DEU')
+  })
+
+  it('CO-CX3 – derives doc_type=dec from a "D" CELEX', async () => {
+    mockFetchConsolidated.mockResolvedValueOnce(mockResult('<p>Decision</p>'))
+
+    await handleEurlexConsolidated({
+      celex_id: '32020D1234',
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(mockFetchConsolidated).toHaveBeenCalledWith('dec', 2020, 1234, 'DEU')
+  })
+
+  it('CO-CX4 – rejects a non-sector-3 CELEX with a clear error, without calling fetchConsolidated', async () => {
+    const result = await handleEurlexConsolidated({
+      celex_id: '62018CJ0311',
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toMatch(/sector-3/)
+    expect(mockFetchConsolidated).not.toHaveBeenCalled()
+  })
+
+  it('CO-CX5 – rejects a sector-3 CELEX with a type letter outside R/L/D', async () => {
+    const result = await handleEurlexConsolidated({
+      celex_id: '32016X0679',
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toMatch(/sector-3/)
+    expect(mockFetchConsolidated).not.toHaveBeenCalled()
+  })
+
+  it('CO-CX6 – rejects when both celex_id and doc_type+year+number are provided', async () => {
+    const result = await handleEurlexConsolidated({
+      celex_id: '32016R0679',
+      doc_type: 'reg',
+      year: 2016,
+      number: 679,
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(mockFetchConsolidated).not.toHaveBeenCalled()
+  })
+
+  it('CO-CX7 – rejects when neither celex_id nor doc_type+year+number are provided', async () => {
+    const result = await handleEurlexConsolidated({
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(mockFetchConsolidated).not.toHaveBeenCalled()
+  })
+
+  it('CO-CX8 – rejects a partial triple (doc_type only, no celex_id)', async () => {
+    const result = await handleEurlexConsolidated({
+      doc_type: 'reg',
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(mockFetchConsolidated).not.toHaveBeenCalled()
   })
 })

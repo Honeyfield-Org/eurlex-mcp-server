@@ -74,17 +74,12 @@ describe('handleEurlexMetadata()', () => {
     expect(result.content[0].text).toContain('SPARQL endpoint unavailable')
   })
 
-  it('M10b – returns isError on invalid CELEX ID', async () => {
-    const result = await handleEurlexMetadata({
-      celex_id: 'INVALID!!!',
-      language: 'DEU',
-    })
-
-    expect(result.isError).toBe(true)
-    expect(result.content).toHaveLength(1)
-    expect(result.content[0].type).toBe('text')
-    expect(result.content[0].text).toMatch(/Error:/)
-  })
+  // Note: handleEurlexMetadata no longer validates celex_id format itself —
+  // the SDK validates via metadataSchema.shape before the handler ever runs
+  // (see registerMetadataTool). That regex behavior is covered at the schema
+  // level in metadataSchema.test.ts (M3, M8); a redundant handler-level
+  // "invalid CELEX" test was removed here since it no longer exercises real
+  // validation logic.
 
   it('M10c – returned JSON contains all MetadataResult fields', async () => {
     mockMetadataQuery.mockResolvedValueOnce(mockResult)

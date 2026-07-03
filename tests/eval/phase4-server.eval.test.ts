@@ -107,7 +107,7 @@ describe('Phase 4 Eval – Server', () => {
 
     const text = result.messages[0].content as { type: string; text: string }
     expect(text.text).toContain('CELEX')
-    expect(text.text).toContain('Suchstrategie')
+    expect(text.text).toContain('Search strategy')
     expect(text.text).toContain('32024R1689')
   })
 })

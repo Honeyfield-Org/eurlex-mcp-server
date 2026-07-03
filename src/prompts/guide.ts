@@ -1,77 +1,75 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-const GUIDE_TEXT = `# EUR-Lex Recherche-Guide
+const GUIDE_TEXT = `# EUR-Lex Research Guide
 
-## Verfügbare Tools
+## Available tools
 
-### eurlex_search — Titelsuche
-Sucht EU-Rechtsakte nach Titel. Unterstützt Filter nach Typ, Datum, Sprache.
+### eurlex_search — Title search
+Searches EU legal acts by title substring (contiguous phrase, case-insensitive — not tokenized full-text search). Supports filtering by resource_type, date_from/date_to, and language. Broad single-word queries over common terms can be slow against the Cellar SPARQL endpoint; narrow with resource_type or a date range if a search times out. Results are newest-first within the fetched sample, not necessarily the globally newest match for very broad queries.
 
-### eurlex_fetch — Volltext abrufen
-Ruft den Volltext eines Rechtsakts per CELEX-ID ab.
+### eurlex_fetch — Full text
+Fetches the full text of a legal act by CELEX ID. Paginate long documents with offset and max_chars — pass the previous response's next_offset to continue reading until it is null.
 
-### eurlex_metadata — Metadaten abfragen
-Liefert Inkrafttreten, Gültigkeit, In-Kraft-Status, Autoren, EuroVoc-Themen, Directory-Codes.
+### eurlex_metadata — Metadata lookup
+Returns dates (document, entry into force, end of validity), in-force status, authors, legal basis (CELEX IDs of the acts it is based on), EuroVoc descriptors, and directory codes.
 
-### eurlex_citations — Zitierungen & Beziehungen
-Findet Zitierungen, Rechtsgrundlagen, Änderungen zu einem Rechtsakt.
-Richtungen: cites (zitiert von), cited_by (zitiert durch), both.
+### eurlex_citations — Citations & relationships
+Finds citations, legal basis, and amendments for a legal act. Directions: cites (referenced by this act), cited_by (acts referencing this one), both (a balanced split of both directions, with a counts field reporting how many of each side were found).
 
-### eurlex_by_eurovoc — Thematische Suche
-Sucht Rechtsakte nach EuroVoc-Konzept. Findet auch Dokumente, die das Stichwort nicht im Titel haben.
-Akzeptiert Labels ("artificial intelligence") oder URIs ("http://eurovoc.europa.eu/4424").
+### eurlex_by_eurovoc — Thematic search
+Searches legal acts by EuroVoc concept. Finds documents that don't have the search term in their title — the right tool for "documents about X". Accepts a label ("artificial intelligence") or a URI ("http://eurovoc.europa.eu/4424").
 
-### eurlex_consolidated — Konsolidierte Fassung
-Ruft die aktuell gültige Fassung ab (mit allen Änderungen eingearbeitet) via ELI.
+### eurlex_consolidated — Consolidated version
+Fetches the currently in-force version (with all amendments merged in) via ELI. Identify the act with celex_id (e.g. "32016R0679") OR with doc_type + year + number — provide exactly one of the two. celex_id must be a sector-3 secondary-law CELEX (3YYYY[R|L|D]NNNN). Paginate with offset and max_chars like eurlex_fetch.
 
-## CELEX-Nummern-Schema
-- 3 = Sekundärrecht EU (Verordnungen, Richtlinien, Entscheidungen)
-- Danach: Jahr (4-stellig) + Typ-Buchstabe + Dokumentnummer
-- Beispiele: 32024R1689 (AI Act), 32016R0679 (DSGVO), 32022L2555 (NIS2)
+## CELEX numbering scheme
+- 3 = EU secondary legislation (regulations, directives, decisions)
+- Then: year (4 digits) + type letter + document number
+- Examples: 32024R1689 (AI Act), 32016R0679 (GDPR), 32022L2555 (NIS2)
 
-## Typ-Buchstaben → resource_type Mapping
-| CELEX-Buchstabe | resource_type | Bedeutung |
+## Type letter → resource_type mapping
+| CELEX letter | resource_type | Meaning |
 |---|---|---|
-| R | REG | Verordnung (direkt anwendbar) |
-| L | DIR | Richtlinie (muss umgesetzt werden) |
-| D | DEC | Entscheidung/Beschluss |
+| R | REG | Regulation (directly applicable) |
+| L | DIR | Directive (must be transposed) |
+| D | DEC | Decision |
 
-## Erweiterte Typen
-REG_IMPL (Durchführungsverordnung), REG_DEL (Delegierte Verordnung),
-DIR_IMPL (Durchführungsrichtlinie), DIR_DEL (Delegierte Richtlinie),
-DEC_IMPL (Durchführungsbeschluss), DEC_DEL (Delegierter Beschluss),
-RECO (Empfehlung),
-JUDG (Urteil), ORDER (Beschluss), OPIN_AG (Schlussanträge GA)
+## Extended types
+REG_IMPL (implementing regulation), REG_DEL (delegated regulation),
+DIR_IMPL (implementing directive), DIR_DEL (delegated directive),
+DEC_IMPL (implementing decision), DEC_DEL (delegated decision),
+RECO (recommendation),
+JUDG (judgment), ORDER (court order), OPIN_AG (Advocate General opinion)
 
-## Suchstrategie
-1. eurlex_search sucht NUR in Titeln → für thematische Suche eurlex_by_eurovoc verwenden
-2. Suchbegriffe in der Sprache des Titels verwenden
-3. Bei Nicht-Treffern: Synonyme probieren ("KI" vs "künstliche Intelligenz")
-4. Bekannte CELEX-ID? → Direkt eurlex_fetch oder eurlex_metadata nutzen
-5. Rechtsbeziehungen? → eurlex_citations für Zitierungsketten
-6. Konsolidierte Fassung? → eurlex_consolidated für geltendes Recht
+## Search strategy
+1. eurlex_search only matches titles → use eurlex_by_eurovoc for thematic discovery
+2. Use search terms in the language of the title
+3. No hits? Try synonyms (e.g. "AI" vs "artificial intelligence")
+4. Known CELEX ID? → Use eurlex_fetch or eurlex_metadata directly
+5. Legal relationships? → eurlex_citations for citation chains
+6. Consolidated version? → eurlex_consolidated for the currently in-force text
 
-## EuroVoc-Sprachbeispiele
-- Bei language=ENG: "artificial intelligence", "data protection", "cybersecurity"
-- Bei language=DEU: "künstliche Intelligenz", "Datenschutz", "Cybersicherheit"
-- Bei language=FRA: "intelligence artificielle", "protection des données"
-EuroVoc-Labels sind sprachabhängig — passende Sprache zum language-Parameter wählen!
+## EuroVoc language examples
+- language=ENG: "artificial intelligence", "data protection", "cybersecurity"
+- language=DEU: "künstliche Intelligenz", "Datenschutz", "Cybersicherheit"
+- language=FRA: "intelligence artificielle", "protection des données"
+EuroVoc labels are language-specific — match the language to the language parameter!
 
-## Bekannte CELEX-IDs wichtiger Rechtsakte
+## Well-known CELEX IDs
 - AI Act: 32024R1689
-- DSGVO: 32016R0679
-- NIS2-Richtlinie: 32022L2555
+- GDPR: 32016R0679
+- NIS2 Directive: 32022L2555
 - Digital Services Act: 32022R2065
 - Digital Markets Act: 32022R1925
 - Data Act: 32023R2854
 - Data Governance Act: 32022R0868
 
 ## Limitations
-- Sehr lange Dokumente werden bei max_chars abgeschnitten
-- SPARQL-Antwortzeit: 2-10 Sekunden
-- Nicht alle Dokumente haben eine XHTML-Version
-- EuroVoc-Labels sind sprachabhängig — englische Begriffe bei language=ENG
-- Konsolidierte Fassungen existieren nicht für alle Rechtsakte`;
+- Very long documents are paginated via offset/max_chars — check next_offset to continue reading
+- SPARQL response time: typically 2-10 seconds; broad title searches can be slower and may time out
+- Not every document has an XHTML version
+- EuroVoc labels are language-specific — use terms matching the language parameter
+- Not every legal act has a consolidated version`;
 
 export function registerGuidePrompt(server: McpServer): void {
   server.prompt('eurlex_guide', {}, () => ({

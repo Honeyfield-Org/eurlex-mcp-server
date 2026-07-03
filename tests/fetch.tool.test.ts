@@ -82,20 +82,11 @@ describe('handleEurlexFetch()', () => {
     expect(result.content[0].text).toContain('Document not found')
   })
 
-  it('T19b – returns isError: true when schema validation fails (invalid CELEX-ID)', async () => {
-    const result = await handleEurlexFetch({
-      celex_id: 'INVALID!!!',
-      language: 'DEU',
-      format: 'xhtml',
-      max_chars: 20000,
-      offset: 0,
-    })
-
-    expect(result.isError).toBe(true)
-    expect(result.content).toHaveLength(1)
-    expect(result.content[0].type).toBe('text')
-    expect(result.content[0].text).toMatch(/Error:/)
-  })
+  // Note: handleEurlexFetch no longer validates celex_id format itself — the
+  // SDK validates via fetchSchema.shape before the handler ever runs (see
+  // registerFetchTool). That regex behavior is covered at the schema level in
+  // fetchSchema.test.ts (F3, F4); a redundant handler-level "invalid CELEX"
+  // test was removed here since it no longer exercises real validation logic.
 
   it('T18c – total_chars reports original length when truncated', async () => {
     const longContent = 'x'.repeat(5000)

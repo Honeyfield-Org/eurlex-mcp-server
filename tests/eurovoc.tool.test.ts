@@ -41,7 +41,7 @@ describe('handleEurlexByEurovoc()', () => {
       limit: 10,
     })
 
-    expect(result.content[0].text).toContain('Keine Ergebnisse')
+    expect(result.content[0].text).toContain('No results')
   })
 
   it('E11 – returns isError on failure', async () => {
