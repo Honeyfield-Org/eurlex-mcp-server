@@ -120,6 +120,8 @@ environment variables:
 | `MCP_ALLOWED_HOSTS` | no (but strongly recommended for public deployments) | Comma-separated list of allowed `Host` header values. Must match the header **exactly**, including the port if the server isn't reachable on the default HTTP(S) port. |
 | `MCP_ALLOWED_ORIGINS` | no | Comma-separated list of allowed `Origin` header values. Only enforced when `MCP_ALLOWED_ORIGINS` is set together with `MCP_ALLOWED_HOSTS`. |
 
+**Important:** If your server runs behind a reverse proxy or load balancer, ensure it forwards the original `Host` header unmodified (e.g. nginx `proxy_set_header Host $host;`), otherwise `MCP_ALLOWED_HOSTS` validation will reject all legitimate traffic — the SDK compares the raw Host header as an exact string.
+
 Production example:
 
 ```bash

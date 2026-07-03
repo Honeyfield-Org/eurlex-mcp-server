@@ -103,6 +103,8 @@ export function createApp(): {
         transports.set(sid, transport);
         lastSeen.set(sid, Date.now());
       },
+      // Note: enableDnsRebindingProtection, allowedHosts, and allowedOrigins are marked deprecated
+      // upstream in favor of external middleware, but used deliberately here (no-new-dependencies constraint).
       ...(dnsRebindingProtectionEnabled && {
         enableDnsRebindingProtection: true,
         allowedHosts,
