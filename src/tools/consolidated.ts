@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { consolidatedInputSchema, consolidatedSchema } from '../schemas/consolidatedSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import type { ConsolidatedResult } from '../types.js';
 import { processContent, toolError } from '../utils.js';
 
@@ -74,12 +74,11 @@ export async function handleEurlexConsolidated(input: {
       number = parsed.number as number;
     }
 
-    const client = new CellarClient();
     const {
       content: rawContent,
       eliUrl,
       consolidatedCelex,
-    } = await client.fetchConsolidated(docType, year, number, parsed.language);
+    } = await sharedCellarClient.fetchConsolidated(docType, year, number, parsed.language);
 
     const { content, truncated, returned_chars, total_chars, offset, next_offset } = processContent(
       rawContent,

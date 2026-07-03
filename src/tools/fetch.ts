@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { CELLAR_REST_BASE } from '../constants.js';
 import { fetchSchema } from '../schemas/fetchSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import type { FetchResult } from '../types.js';
 import { processContent, toolError } from '../utils.js';
 
@@ -14,8 +14,7 @@ export async function handleEurlexFetch(input: {
   offset: number;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const client = new CellarClient();
-    const raw = await client.fetchDocument(input.celex_id, input.language);
+    const raw = await sharedCellarClient.fetchDocument(input.celex_id, input.language);
     const { content, truncated, returned_chars, total_chars, offset, next_offset } = processContent(
       raw,
       input.format,

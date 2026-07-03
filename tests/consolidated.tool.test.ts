@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockFetchConsolidated = vi.fn()
+const { mockFetchConsolidated } = vi.hoisted(() => ({ mockFetchConsolidated: vi.fn() }))
 vi.mock('../src/services/cellarClient.js', () => ({
-  CellarClient: vi.fn().mockImplementation(() => ({
-    fetchConsolidated: mockFetchConsolidated,
-  })),
+  CellarClient: vi.fn(),
+  sharedCellarClient: { fetchConsolidated: mockFetchConsolidated },
 }))
 
 import { handleEurlexConsolidated } from '../src/tools/consolidated.js'

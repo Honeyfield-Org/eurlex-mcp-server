@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { metadataSchema } from '../schemas/metadataSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import { toolError } from '../utils.js';
 
 export async function handleEurlexMetadata(input: {
@@ -9,8 +9,7 @@ export async function handleEurlexMetadata(input: {
   language: string;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const client = new CellarClient();
-    const result = await client.metadataQuery(input.celex_id, input.language);
+    const result = await sharedCellarClient.metadataQuery(input.celex_id, input.language);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     };

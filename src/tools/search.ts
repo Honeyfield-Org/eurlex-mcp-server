@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { searchSchema } from '../schemas/searchSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import type { SearchToolOutput } from '../types.js';
 import { toolError } from '../utils.js';
 
@@ -14,8 +14,7 @@ export async function handleEurlexSearch(input: {
   date_to?: string;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const client = new CellarClient();
-    const { results } = await client.sparqlQuery(input.query, {
+    const { results } = await sharedCellarClient.sparqlQuery(input.query, {
       resource_type: input.resource_type,
       language: input.language,
       limit: input.limit,

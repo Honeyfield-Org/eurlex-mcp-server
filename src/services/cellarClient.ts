@@ -7,6 +7,12 @@ import {
   REQUEST_TIMEOUT_MS,
   MAX_RETRIES,
   RETRY_DELAYS_MS,
+  EUROVOC_LABEL_CACHE_TTL_MS,
+  EUROVOC_LABEL_CACHE_MAX_ENTRIES,
+  CONSOLIDATED_CELEX_CACHE_TTL_MS,
+  CONSOLIDATED_CELEX_CACHE_MAX_ENTRIES,
+  METADATA_CACHE_TTL_MS,
+  METADATA_CACHE_MAX_ENTRIES,
 } from '../constants.js';
 import type {
   SparqlQueryParams,
@@ -15,6 +21,8 @@ import type {
   CitationsResult,
   CitationEntry,
 } from '../types.js';
+
+import { TtlCache } from './ttlCache.js';
 
 /** Maps 3-letter language codes to CDM expression language URI suffixes */
 const LANGUAGE_URI_MAP: Record<string, string> = {
@@ -161,15 +169,36 @@ function isRetryableError(error: unknown): boolean {
 export interface CellarClientOptions {
   /** Injectable delay for retry backoff — defaults to a real setTimeout-based sleep. */
   retryDelayFn?: (ms: number) => Promise<void>;
+  /** Injectable clock for the TTL caches — defaults to `Date.now`. */
+  now?: () => number;
 }
 
 export class CellarClient {
   private readonly retryDelayFn: (ms: number) => Promise<void>;
 
+  // Instance-level TTL caches (Task 6) — expiry on read only, no timers.
+  // Errors are never cached; a legitimate "not found" (null) result is.
+  private readonly eurovocLabelCache: TtlCache<string | null>;
+  private readonly consolidatedCelexCache: TtlCache<string | null>;
+  private readonly metadataCache: TtlCache<MetadataResult>;
+
   constructor(options: CellarClientOptions = {}) {
     this.retryDelayFn =
       options.retryDelayFn ??
       ((ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)));
+
+    const now = options.now ?? Date.now;
+    this.eurovocLabelCache = new TtlCache(
+      EUROVOC_LABEL_CACHE_MAX_ENTRIES,
+      EUROVOC_LABEL_CACHE_TTL_MS,
+      now,
+    );
+    this.consolidatedCelexCache = new TtlCache(
+      CONSOLIDATED_CELEX_CACHE_MAX_ENTRIES,
+      CONSOLIDATED_CELEX_CACHE_TTL_MS,
+      now,
+    );
+    this.metadataCache = new TtlCache(METADATA_CACHE_MAX_ENTRIES, METADATA_CACHE_TTL_MS, now);
   }
 
   /**
@@ -475,6 +504,10 @@ export class CellarClient {
    * Fetches metadata for a CELEX ID from the SPARQL endpoint.
    */
   async metadataQuery(celexId: string, language: string): Promise<MetadataResult> {
+    const cacheKey = `${celexId}|${language}`;
+    const cached = this.metadataCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+
     const sparql = this.buildMetadataQuery(celexId, language);
 
     const data = await this.executeSparql<MetadataSparqlResponse>(sparql);
@@ -508,7 +541,7 @@ export class CellarClient {
     const dateEnd = binding.dateEnd?.value;
     const dateEndNormalized = !dateEnd || dateEnd === '9999-12-31' ? null : dateEnd;
 
-    return {
+    const result: MetadataResult = {
       celex_id: celexId,
       title: binding.title?.value ?? '',
       date_document: normalizeDate(binding.dateDoc?.value),
@@ -523,6 +556,9 @@ export class CellarClient {
       legal_basis: splitConcat(binding.legalBases?.value),
       eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${celexId}`,
     };
+
+    this.metadataCache.set(cacheKey, result);
+    return result;
   }
 
   /**
@@ -678,6 +714,10 @@ export class CellarClient {
    * the shortest label — a deterministic single winner instead of an arbitrary one.
    */
   async resolveEurovocLabel(label: string, language: string): Promise<string | null> {
+    const cacheKey = `${label.toLowerCase()}|${language}`;
+    const cached = this.eurovocLabelCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+
     const escaped = escapeSparqlString(label);
     const langLower = LANGUAGE_HTTP_MAP[language] ?? 'de';
 
@@ -700,8 +740,10 @@ export class CellarClient {
     const bindings = data.results.bindings;
     // null means "the query succeeded and found no matching concept" — a real
     // legitimate "not found". Network/timeout/5xx errors propagate to the caller
-    // instead of being swallowed here.
-    return bindings.length > 0 ? bindings[0].concept.value : null;
+    // instead of being swallowed here (and are never cached, see below).
+    const result = bindings.length > 0 ? bindings[0].concept.value : null;
+    this.eurovocLabelCache.set(cacheKey, result);
+    return result;
   }
 
   /**
@@ -814,6 +856,10 @@ export class CellarClient {
     year: number,
     number: number,
   ): Promise<string | null> {
+    const cacheKey = `${docType}/${year}/${number}`;
+    const cached = this.consolidatedCelexCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+
     const typeLetter = CellarClient.DOC_TYPE_CELEX_MAP[docType] ?? 'R';
     const celexBody = `0${year}${typeLetter}${String(number).padStart(4, '0')}`;
 
@@ -839,7 +885,11 @@ export class CellarClient {
     const data = await this.executeSparql<{
       results: { bindings: { celex: { value: string } }[] };
     }>(sparql);
-    return data.results.bindings.length > 0 ? data.results.bindings[0].celex.value : null;
+    // null is a legitimate "no consolidated version found" result — cached just
+    // like a hit, since re-querying would just re-confirm the same absence.
+    const result = data.results.bindings.length > 0 ? data.results.bindings[0].celex.value : null;
+    this.consolidatedCelexCache.set(cacheKey, result);
+    return result;
   }
 
   /**
@@ -875,3 +925,11 @@ export class CellarClient {
     return { content, eliUrl, consolidatedCelex };
   }
 }
+
+/**
+ * Shared singleton instance used by all tool handlers, so the instance-level
+ * caches (EuroVoc label resolution, consolidated CELEX lookups, metadata) are
+ * actually shared across requests within one process — a fresh `new
+ * CellarClient()` per call would make the caching above pointless.
+ */
+export const sharedCellarClient = new CellarClient();

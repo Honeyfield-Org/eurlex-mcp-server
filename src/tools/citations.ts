@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { citationsSchema } from '../schemas/citationsSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import { toolError } from '../utils.js';
 
 export async function handleEurlexCitations(input: {
@@ -11,8 +11,7 @@ export async function handleEurlexCitations(input: {
   limit: number;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const client = new CellarClient();
-    const result = await client.citationsQuery(
+    const result = await sharedCellarClient.citationsQuery(
       input.celex_id,
       input.language,
       input.direction,

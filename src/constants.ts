@@ -16,6 +16,17 @@ export const RETRY_DELAYS_MS = [500, 1500];
 // {4,30} — supports parenthesized corrigenda suffixes, e.g. 32023D2454(02)
 export const CELEX_REGEX = /^\d[A-Z0-9()]{4,30}$/;
 
+// In-memory TTL caches on CellarClient (Task 6). Expiry is checked on read
+// only — no background timers. Errors are never cached; legitimate "not
+// found" (null) results ARE cached, since re-querying Cellar for the same
+// non-existent lookup within the TTL window would be wasted work.
+export const EUROVOC_LABEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export const EUROVOC_LABEL_CACHE_MAX_ENTRIES = 500;
+export const CONSOLIDATED_CELEX_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+export const CONSOLIDATED_CELEX_CACHE_MAX_ENTRIES = 500;
+export const METADATA_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+export const METADATA_CACHE_MAX_ENTRIES = 200;
+
 export const RESOURCE_TYPES = [
   'REG',
   'REG_IMPL',

@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockEurovocQuery = vi.fn()
+const { mockEurovocQuery } = vi.hoisted(() => ({ mockEurovocQuery: vi.fn() }))
 vi.mock('../src/services/cellarClient.js', () => ({
-  CellarClient: vi.fn().mockImplementation(() => ({
-    eurovocQuery: mockEurovocQuery,
-  })),
+  CellarClient: vi.fn(),
+  sharedCellarClient: { eurovocQuery: mockEurovocQuery },
 }))
 
 import { handleEurlexByEurovoc } from '../src/tools/eurovoc.js'

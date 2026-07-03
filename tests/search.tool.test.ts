@@ -4,12 +4,11 @@ import type { SearchResult } from '../src/types.js'
 // ---------------------------------------------------------------------------
 // Mock CellarClient — must be before importing the tool handler
 // ---------------------------------------------------------------------------
-const mockSparqlQuery = vi.fn()
+const { mockSparqlQuery } = vi.hoisted(() => ({ mockSparqlQuery: vi.fn() }))
 
 vi.mock('../src/services/cellarClient.js', () => ({
-  CellarClient: vi.fn().mockImplementation(() => ({
-    sparqlQuery: mockSparqlQuery,
-  })),
+  CellarClient: vi.fn(),
+  sharedCellarClient: { sparqlQuery: mockSparqlQuery },
 }))
 
 import { handleEurlexSearch } from '../src/tools/search.js'

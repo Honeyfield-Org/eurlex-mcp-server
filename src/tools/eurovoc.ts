@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { eurovocSchema } from '../schemas/eurovocSchema.js';
-import { CellarClient } from '../services/cellarClient.js';
+import { sharedCellarClient } from '../services/cellarClient.js';
 import { toolError } from '../utils.js';
 
 export async function handleEurlexByEurovoc(input: {
@@ -11,8 +11,7 @@ export async function handleEurlexByEurovoc(input: {
   limit: number;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
   try {
-    const client = new CellarClient();
-    const results = await client.eurovocQuery(
+    const results = await sharedCellarClient.eurovocQuery(
       input.concept,
       input.resource_type,
       input.language,

@@ -191,3 +191,78 @@ describe('fetchConsolidated()', () => {
     expect(sparqlBody).toContain('02021D0914')
   })
 })
+
+// ===========================================================================
+// findConsolidatedCelex() caching (Task 6)
+// ===========================================================================
+describe('findConsolidatedCelex() caching', () => {
+  it('CACHE-C1 – caches a successful lookup: two identical calls hit fetch once', async () => {
+    mockFetch.mockResolvedValueOnce(mockSparqlCelexResponse('02024R1689-20240712'))
+
+    const client = new CellarClient()
+    const first = await client.findConsolidatedCelex('reg', 2024, 1689)
+    const second = await client.findConsolidatedCelex('reg', 2024, 1689)
+
+    expect(first).toBe('02024R1689-20240712')
+    expect(second).toBe('02024R1689-20240712')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('CACHE-C2 – caches a legitimate `null` ("not found") result: second call does not hit fetch', async () => {
+    mockFetch.mockResolvedValueOnce(mockSparqlEmptyResponse())
+
+    const client = new CellarClient()
+    const first = await client.findConsolidatedCelex('reg', 9999, 9999)
+    const second = await client.findConsolidatedCelex('reg', 9999, 9999)
+
+    expect(first).toBeNull()
+    expect(second).toBeNull()
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('CACHE-C3 – does NOT cache an error: the second call retries against fetch', async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+
+    const client = new CellarClient({ retryDelayFn: async () => {} })
+    await expect(client.findConsolidatedCelex('reg', 2024, 1689)).rejects.toThrow(
+      'SPARQL endpoint error: 500',
+    )
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+
+    mockFetch.mockResolvedValueOnce(mockSparqlCelexResponse('02024R1689-20240712'))
+    const second = await client.findConsolidatedCelex('reg', 2024, 1689)
+
+    expect(second).toBe('02024R1689-20240712')
+    expect(mockFetch).toHaveBeenCalledTimes(4)
+  })
+
+  it('CACHE-C4 – a different docType/year/number produces a different cache entry', async () => {
+    mockFetch
+      .mockResolvedValueOnce(mockSparqlCelexResponse('02024R1689-20240712'))
+      .mockResolvedValueOnce(mockSparqlCelexResponse('02016R0679-20160504'))
+
+    const client = new CellarClient()
+    await client.findConsolidatedCelex('reg', 2024, 1689)
+    await client.findConsolidatedCelex('reg', 2016, 679)
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('CACHE-C5 – expires after the injected clock advances past the 6h TTL', async () => {
+    let now = 0
+    mockFetch
+      .mockResolvedValueOnce(mockSparqlCelexResponse('02024R1689-20240712'))
+      .mockResolvedValueOnce(mockSparqlCelexResponse('02024R1689-20240712'))
+
+    const client = new CellarClient({ now: () => now })
+    await client.findConsolidatedCelex('reg', 2024, 1689)
+
+    now += 6 * 60 * 60 * 1000 // exactly 6h later — TTL boundary, must be expired
+    await client.findConsolidatedCelex('reg', 2024, 1689)
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+})

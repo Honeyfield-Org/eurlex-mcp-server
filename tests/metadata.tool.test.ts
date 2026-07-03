@@ -3,12 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 // Mock CellarClient — must be before importing the tool handler
 // ---------------------------------------------------------------------------
-const mockMetadataQuery = vi.fn()
+const { mockMetadataQuery } = vi.hoisted(() => ({ mockMetadataQuery: vi.fn() }))
 
 vi.mock('../src/services/cellarClient.js', () => ({
-  CellarClient: vi.fn().mockImplementation(() => ({
-    metadataQuery: mockMetadataQuery,
-  })),
+  CellarClient: vi.fn(),
+  sharedCellarClient: { metadataQuery: mockMetadataQuery },
 }))
 
 import { handleEurlexMetadata } from '../src/tools/metadata.js'

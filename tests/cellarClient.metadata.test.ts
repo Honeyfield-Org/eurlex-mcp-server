@@ -4,11 +4,17 @@ import { CellarClient } from '../src/services/cellarClient.js'
 const mockFetch = vi.fn()
 
 describe('CellarClient – Metadata', () => {
-  const client = new CellarClient()
+  // Recreated in beforeEach (not a single shared const): metadataQuery() now
+  // caches by celexId|language (Task 6), and several tests below reuse the
+  // same CELEX/language with different mocked responses — a long-lived
+  // client would serve a stale cached result instead of exercising the fetch
+  // mock. A fresh client per test keeps each test's cache empty.
+  let client = new CellarClient()
 
   beforeEach(() => {
     mockFetch.mockReset()
     vi.stubGlobal('fetch', mockFetch)
+    client = new CellarClient()
   })
 
   // =========================================================================
@@ -276,6 +282,11 @@ describe('CellarClient – Metadata', () => {
     })
 
     it('M8b – correctly parses in_force as boolean', async () => {
+      // Each case below queries the *same* celexId/language — metadataQuery()
+      // now caches by that key (Task 6), so a fresh client per case is
+      // required here to actually exercise each mocked response instead of
+      // serving the first one's cached result.
+
       // true case
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -285,7 +296,7 @@ describe('CellarClient – Metadata', () => {
             inForce: { type: 'literal', value: 'true' },
           }),
       })
-      const resultTrue = await client.metadataQuery('32021R0694', 'DEU')
+      const resultTrue = await new CellarClient().metadataQuery('32021R0694', 'DEU')
       expect(resultTrue.in_force).toBe(true)
 
       // false case
@@ -297,7 +308,7 @@ describe('CellarClient – Metadata', () => {
             inForce: { type: 'literal', value: 'false' },
           }),
       })
-      const resultFalse = await client.metadataQuery('32021R0694', 'DEU')
+      const resultFalse = await new CellarClient().metadataQuery('32021R0694', 'DEU')
       expect(resultFalse.in_force).toBe(false)
 
       // "1" case (xsd:boolean alternate)
@@ -309,7 +320,7 @@ describe('CellarClient – Metadata', () => {
             inForce: { type: 'literal', value: '1' },
           }),
       })
-      const result1 = await client.metadataQuery('32021R0694', 'DEU')
+      const result1 = await new CellarClient().metadataQuery('32021R0694', 'DEU')
       expect(result1.in_force).toBe(true)
 
       // "0" case (xsd:boolean alternate)
@@ -321,7 +332,7 @@ describe('CellarClient – Metadata', () => {
             inForce: { type: 'literal', value: '0' },
           }),
       })
-      const result0 = await client.metadataQuery('32021R0694', 'DEU')
+      const result0 = await new CellarClient().metadataQuery('32021R0694', 'DEU')
       expect(result0.in_force).toBe(false)
 
       // missing case
@@ -330,7 +341,7 @@ describe('CellarClient – Metadata', () => {
         ok: true,
         json: async () => makeMetadataSparqlResponse(bindingNoForce),
       })
-      const resultNull = await client.metadataQuery('32021R0694', 'DEU')
+      const resultNull = await new CellarClient().metadataQuery('32021R0694', 'DEU')
       expect(resultNull.in_force).toBeNull()
     })
 
@@ -353,6 +364,78 @@ describe('CellarClient – Metadata', () => {
       expect(result.eurovoc_concepts).toEqual(['concept1'])
       expect(result.directory_codes).toEqual([])
       expect(result.legal_basis).toEqual([])
+    })
+  })
+
+  // =========================================================================
+  // metadataQuery() caching (Task 6)
+  // =========================================================================
+  describe('metadataQuery() caching', () => {
+    function makeMetadataSparqlResponse(binding: Record<string, { type: string; value: string }>) {
+      return { results: { bindings: [binding] } }
+    }
+
+    const minimalBinding = { title: { type: 'literal', value: 'Minimal document' } }
+
+    it('CACHE-M1 – caches a successful result: two identical calls hit fetch once', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeMetadataSparqlResponse(minimalBinding),
+      })
+
+      const cachingClient = new CellarClient()
+      const first = await cachingClient.metadataQuery('32021R0694', 'DEU')
+      const second = await cachingClient.metadataQuery('32021R0694', 'DEU')
+
+      expect(first.title).toBe('Minimal document')
+      expect(second.title).toBe('Minimal document')
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('CACHE-M2 – does NOT cache a "not found" error: the second call retries against fetch', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
+
+      const cachingClient = new CellarClient()
+      await expect(cachingClient.metadataQuery('39999X0000', 'DEU')).rejects.toThrow(
+        'No metadata found for CELEX: 39999X0000',
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeMetadataSparqlResponse(minimalBinding),
+      })
+      const second = await cachingClient.metadataQuery('39999X0000', 'DEU')
+
+      expect(second.title).toBe('Minimal document')
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('CACHE-M3 – a different language produces a different cache entry', async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: async () => makeMetadataSparqlResponse(minimalBinding) })
+        .mockResolvedValueOnce({ ok: true, json: async () => makeMetadataSparqlResponse(minimalBinding) })
+
+      const cachingClient = new CellarClient()
+      await cachingClient.metadataQuery('32021R0694', 'DEU')
+      await cachingClient.metadataQuery('32021R0694', 'ENG')
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('CACHE-M4 – expires after the injected clock advances past the 6h TTL', async () => {
+      let now = 0
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: async () => makeMetadataSparqlResponse(minimalBinding) })
+        .mockResolvedValueOnce({ ok: true, json: async () => makeMetadataSparqlResponse(minimalBinding) })
+
+      const cachingClient = new CellarClient({ now: () => now })
+      await cachingClient.metadataQuery('32021R0694', 'DEU')
+
+      now += 6 * 60 * 60 * 1000 // exactly 6h later — TTL boundary, must be expired
+      await cachingClient.metadataQuery('32021R0694', 'DEU')
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
     })
   })
 })

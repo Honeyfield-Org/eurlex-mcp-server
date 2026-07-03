@@ -3,12 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 // Mock CellarClient — must be before importing the tool handler
 // ---------------------------------------------------------------------------
-const mockFetchDocument = vi.fn()
+const { mockFetchDocument } = vi.hoisted(() => ({ mockFetchDocument: vi.fn() }))
 
 vi.mock('../src/services/cellarClient.js', () => ({
-  CellarClient: vi.fn().mockImplementation(() => ({
-    fetchDocument: mockFetchDocument,
-  })),
+  CellarClient: vi.fn(),
+  sharedCellarClient: { fetchDocument: mockFetchDocument },
 }))
 
 import { CELLAR_REST_BASE } from '../src/constants.js'
