@@ -174,7 +174,7 @@ Notes on the response:
 - `authors` lists the resolved agent names (e.g. "European Parliament", "Council of the European Union") instead of an empty array.
 - `legal_basis` lists the CELEX IDs of the acts this document is based on.
 - Date fields (`date_document`, `date_entry_into_force`, `date_end_of_validity`, `date_transposition`) are `null` when absent -- including Cellar's `9999-12-31` sentinel for acts with no defined end of validity, which is normalized to `null`.
-- `directory_codes` are human-readable (`"{code}: {label}"`), not raw URIs.
+- `directory_codes` are human-readable (`"{code-tail}: {label}"`, where `code-tail` is the fragment after the last `/` of the directory-code URI), not raw URIs.
 
 ### eurlex_citations
 

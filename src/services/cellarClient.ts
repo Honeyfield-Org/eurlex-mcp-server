@@ -506,7 +506,10 @@ export class CellarClient {
   async metadataQuery(celexId: string, language: string): Promise<MetadataResult> {
     const cacheKey = `${celexId}|${language}`;
     const cached = this.metadataCache.get(cacheKey);
-    if (cached !== undefined) return cached;
+    // Shallow copy: the cache's stored object must never be the same reference
+    // as anything handed to a caller, in either direction — otherwise a caller
+    // mutating its result would silently corrupt what a later cache hit returns.
+    if (cached !== undefined) return { ...cached };
 
     const sparql = this.buildMetadataQuery(celexId, language);
 
@@ -557,7 +560,7 @@ export class CellarClient {
       eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${celexId}`,
     };
 
-    this.metadataCache.set(cacheKey, result);
+    this.metadataCache.set(cacheKey, { ...result });
     return result;
   }
 

@@ -45,7 +45,7 @@ export async function handleEurlexCitations(input: {
 export function registerCitationsTool(server: McpServer): void {
   server.tool(
     'eurlex_citations',
-    'Finds citation relationships for an EU legal act: cites, cited_by, amends/amended_by, based_on/basis_for, repeals/repealed_by. direction="both" runs a balanced split so recent cited_by entries cannot crowd out cites results; the response\'s counts field reports how many of each side were found.',
+    'Finds citation relationships for an EU legal act: cites, cited_by, amends/amended_by, based_on/basis_for, repeals/repealed_by. direction="both" runs a balanced split so recent cited_by entries cannot crowd out cites results; the response\'s counts field reports how many of each side were found. The limit is divided evenly between the two directions and is not back-filled from the richer side, so direction="both" can return fewer than `limit` total results even when one side has more matches available.',
     citationsSchema.shape,
     {
       title: 'Find EU legal act citations',

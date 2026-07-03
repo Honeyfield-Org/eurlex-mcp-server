@@ -437,5 +437,21 @@ describe('CellarClient – Metadata', () => {
 
       expect(mockFetch).toHaveBeenCalledTimes(2)
     })
+
+    it('CACHE-M5 – mutating a returned result does not affect a subsequent cache hit', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeMetadataSparqlResponse(minimalBinding),
+      })
+
+      const cachingClient = new CellarClient()
+      const first = await cachingClient.metadataQuery('32021R0694', 'DEU')
+      first.title = 'MUTATED'
+
+      const second = await cachingClient.metadataQuery('32021R0694', 'DEU')
+
+      expect(second.title).toBe('Minimal document')
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
   })
 })
