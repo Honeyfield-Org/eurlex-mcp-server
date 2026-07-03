@@ -66,7 +66,7 @@ describe('handleEurlexSearch()', () => {
     expect(result.isError).toBeFalsy()
   })
 
-  it('query_used matches the SPARQL actually sent to endpoint', async () => {
+  it('T-NOECHO – response does not echo the SPARQL query (query_used dropped)', async () => {
     mockSparqlQuery.mockResolvedValueOnce({
       results: [{ celex: '32024R1689', title: 'AI Act', date: '2024-07-12', type: 'REG', eurlex_url: 'https://example.com' }],
       sparql: 'SELECT DISTINCT ?work ...',
@@ -78,7 +78,8 @@ describe('handleEurlexSearch()', () => {
       limit: 10,
     })
     const parsed = JSON.parse(result.content[0].text)
-    expect(parsed.query_used).toBe('SELECT DISTINCT ?work ...')
+    expect(parsed).not.toHaveProperty('query_used')
+    expect(result.content[0].text).not.toContain('SELECT DISTINCT ?work')
   })
 
   it('T17 – API error returns structured error', async () => {

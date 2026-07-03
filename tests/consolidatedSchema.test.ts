@@ -36,4 +36,20 @@ describe('consolidatedSchema', () => {
   it('rejects unknown format', () => {
     expect(() => consolidatedSchema.parse({ doc_type: 'reg', year: 2024, number: 1, format: 'pdf' })).toThrow()
   })
+
+  it('offset defaults to 0', () => {
+    const result = consolidatedSchema.parse({ doc_type: 'reg', year: 2024, number: 1689 })
+    expect(result.offset).toBe(0)
+  })
+
+  it('accepts an explicit non-negative offset', () => {
+    const result = consolidatedSchema.parse({ doc_type: 'reg', year: 2024, number: 1689, offset: 5000 })
+    expect(result.offset).toBe(5000)
+  })
+
+  it('rejects a negative offset', () => {
+    expect(() =>
+      consolidatedSchema.parse({ doc_type: 'reg', year: 2024, number: 1689, offset: -1 }),
+    ).toThrow()
+  })
 })

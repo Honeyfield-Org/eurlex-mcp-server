@@ -16,6 +16,12 @@ export const consolidatedSchema = z
       .max(50000)
       .default(20000)
       .describe('Maximale Zeichenanzahl'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe('Character offset for pagination (0-based)'),
   })
   .strict();
 

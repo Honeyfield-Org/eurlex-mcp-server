@@ -22,4 +22,22 @@ describe('fetchSchema', () => {
     expect(() => fetchSchema.parse({ celex_id: '' })).toThrow(ZodError)
     expect(() => fetchSchema.parse({ celex_id: '3AB' })).toThrow(ZodError)
   })
+
+  it('F5 – offset defaults to 0', () => {
+    const result = fetchSchema.parse({ celex_id: '32024R1689' })
+    expect(result.offset).toBe(0)
+  })
+
+  it('F6 – accepts an explicit non-negative offset', () => {
+    const result = fetchSchema.parse({ celex_id: '32024R1689', offset: 20000 })
+    expect(result.offset).toBe(20000)
+  })
+
+  it('F7 – rejects a negative offset', () => {
+    expect(() => fetchSchema.parse({ celex_id: '32024R1689', offset: -1 })).toThrow(ZodError)
+  })
+
+  it('F8 – rejects a non-integer offset', () => {
+    expect(() => fetchSchema.parse({ celex_id: '32024R1689', offset: 1.5 })).toThrow(ZodError)
+  })
 })

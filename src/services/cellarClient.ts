@@ -852,7 +852,7 @@ export class CellarClient {
     year: number,
     number: number,
     language: string,
-  ): Promise<{ content: string; eliUrl: string }> {
+  ): Promise<{ content: string; eliUrl: string; consolidatedCelex: string }> {
     // Step 1: Find consolidated CELEX ID
     const consolidatedCelex = await this.findConsolidatedCelex(docType, year, number);
 
@@ -872,6 +872,6 @@ export class CellarClient {
     });
 
     const eliUrl = `http://data.europa.eu/eli/${docType}/${year}/${number}`;
-    return { content, eliUrl };
+    return { content, eliUrl, consolidatedCelex };
   }
 }

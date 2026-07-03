@@ -66,7 +66,7 @@ describe('fetchConsolidated()', () => {
     expect((opts2.headers as Record<string, string>)['Accept-Language']).toBe('de')
   })
 
-  it('CO5 – returns content and eliUrl', async () => {
+  it('CO5 – returns content, eliUrl and consolidatedCelex', async () => {
     mockFetch
       .mockResolvedValueOnce(mockSparqlCelexResponse('02022L2555-20230101'))
       .mockResolvedValueOnce(mockDocumentResponse('<html><body>Artikel 1</body></html>'))
@@ -76,6 +76,7 @@ describe('fetchConsolidated()', () => {
 
     expect(result.content).toContain('Artikel 1')
     expect(result.eliUrl).toContain('data.europa.eu/eli/dir/2022/2555')
+    expect(result.consolidatedCelex).toBe('02022L2555-20230101')
   })
 
   it('CO6 – throws when no consolidated CELEX found via SPARQL', async () => {

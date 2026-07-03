@@ -19,15 +19,22 @@ export interface FetchResult {
   celex_id: string;
   language: string;
   content: string;
+  /** True when more content remains beyond `offset + returned_chars`. */
   truncated: boolean;
-  char_count: number;
+  /** Length of `content` in this response. */
+  returned_chars: number;
+  /** Length of the full processed (post-strip) document. */
+  total_chars: number;
+  /** The offset this response was sliced from. */
+  offset: number;
+  /** Offset to request next to continue reading, or `null` when there is no more content. */
+  next_offset: number | null;
   source_url: string;
 }
 
 export interface SearchToolOutput {
   results: SearchResult[];
   total: number;
-  query_used: string;
 }
 
 export interface MetadataResult {
@@ -87,7 +94,19 @@ export interface ConsolidatedResult {
   number: number;
   language: string;
   content: string;
+  /** True when more content remains beyond `offset + returned_chars`. */
   truncated: boolean;
-  char_count: number;
+  /** Length of `content` in this response. */
+  returned_chars: number;
+  /** Length of the full processed (post-strip) document. */
+  total_chars: number;
+  /** The offset this response was sliced from. */
+  offset: number;
+  /** Offset to request next to continue reading, or `null` when there is no more content. */
+  next_offset: number | null;
   eli_url: string;
+  /** The resolved consolidated CELEX ID, e.g. "02016R0679-20160504". */
+  consolidated_celex: string;
+  /** ISO date parsed from the CELEX's "-YYYYMMDD" suffix, or `null` when absent. */
+  consolidation_date: string | null;
 }
