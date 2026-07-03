@@ -1,6 +1,6 @@
 # eurlex-mcp-server
 
-[![CI](https://github.com/philrox/eurlex-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/philrox/eurlex-mcp-server/actions/workflows/ci.yml)
+[![CI](https://github.com/Honeyfield-Org/eurlex-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/Honeyfield-Org/eurlex-mcp-server/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/eurlex-mcp-server)](https://www.npmjs.com/package/eurlex-mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-≥20-green)](https://nodejs.org/)
@@ -244,7 +244,7 @@ Examples:
 ### Setup
 
 ```bash
-git clone https://github.com/philrox/eurlex-mcp-server.git
+git clone https://github.com/Honeyfield-Org/eurlex-mcp-server.git
 cd eurlex-mcp-server
 pnpm install
 pnpm build

@@ -49,11 +49,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/philrox/eurlex-mcp-server.git"
+    "url": "git+https://github.com/Honeyfield-Org/eurlex-mcp-server.git"
   },
-  "homepage": "https://github.com/philrox/eurlex-mcp-server#readme",
+  "homepage": "https://github.com/Honeyfield-Org/eurlex-mcp-server#readme",
   "bugs": {
-    "url": "https://github.com/philrox/eurlex-mcp-server/issues"
+    "url": "https://github.com/Honeyfield-Org/eurlex-mcp-server/issues"
   },
   "engines": {
     "node": ">=20.0.0"
