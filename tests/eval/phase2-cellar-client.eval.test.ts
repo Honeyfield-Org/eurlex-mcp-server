@@ -76,7 +76,7 @@ describe('Phase 2 Eval – CellarClient', () => {
 
     it('contains LIMIT', () => {
       const sparql = client.buildSparqlQuery(baseParams)
-      expect(sparql).toContain('LIMIT 10')
+      expect(sparql).toContain('LIMIT 30')
     })
 
     it('with resource_type=REG contains resource-type/REG', () => {
