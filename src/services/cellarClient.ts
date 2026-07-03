@@ -74,6 +74,7 @@ interface MetadataSparqlResponse {
       authors?: SparqlBindingValue;
       eurovoc?: SparqlBindingValue;
       dirCodes?: SparqlBindingValue;
+      legalBases?: SparqlBindingValue;
     }[];
   };
 }
@@ -419,6 +420,7 @@ export class CellarClient {
       '  (GROUP_CONCAT(DISTINCT ?authorName; separator="|||") AS ?authors)',
       '  (GROUP_CONCAT(DISTINCT ?evLabel; separator="|||") AS ?eurovoc)',
       '  (GROUP_CONCAT(DISTINCT ?dirCode; separator="|||") AS ?dirCodes)',
+      '  (GROUP_CONCAT(DISTINCT ?basisCelex; separator="|||") AS ?legalBases)',
       'WHERE {',
       `  ?work cdm:resource_legal_id_celex ?celexVal .`,
       `  FILTER(STR(?celexVal) = "${escapeSparqlString(celexId)}")`,
@@ -434,17 +436,33 @@ export class CellarClient {
       '    ?work cdm:work_has_resource-type ?resTypeUri .',
       '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resType)',
       '  }',
+      // Authors: the agent is an authority URI (e.g. .../corporate-body/EP) whose
+      // human-readable name lives in skos:prefLabel — cdm:agent_name yields nothing
+      // (verified: it was the cause of the always-empty authors). Prefer the
+      // request-language label, fall back to English, last resort the URI tail.
       '  OPTIONAL {',
       '    ?work cdm:work_created_by_agent ?agent .',
-      '    ?agent cdm:agent_name ?authorName .',
+      `    OPTIONAL { ?agent skos:prefLabel ?agentLabelLang . FILTER(LANG(?agentLabelLang) = "${langLower}") }`,
+      '    OPTIONAL { ?agent skos:prefLabel ?agentLabelEn . FILTER(LANG(?agentLabelEn) = "en") }',
+      '    BIND(COALESCE(?agentLabelLang, ?agentLabelEn, REPLACE(STR(?agent), "^.*/", "")) AS ?authorName)',
       '  }',
       '  OPTIONAL {',
       '    ?work cdm:work_is_about_concept_eurovoc ?evConcept .',
       '    ?evConcept skos:prefLabel ?evLabel .',
       `    FILTER(LANG(?evLabel) = "${langLower}")`,
       '  }',
+      // Directory codes: emit "{code-tail}: {label}" (label in the request language),
+      // or the bare code tail when no label exists. Code tail = URI fragment after '/'.
       '  OPTIONAL {',
-      '    ?work cdm:resource_legal_is_about_concept_directory-code ?dirCode .',
+      '    ?work cdm:resource_legal_is_about_concept_directory-code ?dirCodeUri .',
+      '    BIND(REPLACE(STR(?dirCodeUri), "^.*/", "") AS ?dirTail)',
+      `    OPTIONAL { ?dirCodeUri skos:prefLabel ?dirLabel . FILTER(LANG(?dirLabel) = "${langLower}") }`,
+      '    BIND(IF(BOUND(?dirLabel), CONCAT(?dirTail, ": ", STR(?dirLabel)), ?dirTail) AS ?dirCode)',
+      '  }',
+      // Legal basis: the acts this act is based on, reported by their CELEX IDs.
+      '  OPTIONAL {',
+      '    ?work cdm:resource_legal_based_on_resource_legal ?basis .',
+      '    ?basis cdm:resource_legal_id_celex ?basisCelex .',
       '  }',
       '}',
       'GROUP BY ?title ?dateDoc ?dateForce ?dateEnd ?inForce ?dateTrans ?resType',
@@ -479,18 +497,30 @@ export class CellarClient {
       return null;
     };
 
+    // Empty/missing date strings become null (not ''); the caller can then treat
+    // "unknown" distinctly from a real date.
+    const normalizeDate = (value: string | undefined): string | null => {
+      return value ? value : null;
+    };
+
+    // Cellar uses 9999-12-31 as an "open-ended / no end of validity" sentinel.
+    // Surfacing it as a real date is misleading, so collapse it (and empties) to null.
+    const dateEnd = binding.dateEnd?.value;
+    const dateEndNormalized = !dateEnd || dateEnd === '9999-12-31' ? null : dateEnd;
+
     return {
       celex_id: celexId,
       title: binding.title?.value ?? '',
-      date_document: binding.dateDoc?.value ?? '',
-      date_entry_into_force: binding.dateForce?.value ?? '',
-      date_end_of_validity: binding.dateEnd?.value ?? '',
+      date_document: normalizeDate(binding.dateDoc?.value),
+      date_entry_into_force: normalizeDate(binding.dateForce?.value),
+      date_end_of_validity: dateEndNormalized,
       in_force: parseInForce(binding.inForce?.value),
-      date_transposition: binding.dateTrans?.value ?? '',
+      date_transposition: normalizeDate(binding.dateTrans?.value),
       resource_type: binding.resType?.value ?? '',
       authors: splitConcat(binding.authors?.value),
       eurovoc_concepts: splitConcat(binding.eurovoc?.value),
       directory_codes: splitConcat(binding.dirCodes?.value),
+      legal_basis: splitConcat(binding.legalBases?.value),
       eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${celexId}`,
     };
   }

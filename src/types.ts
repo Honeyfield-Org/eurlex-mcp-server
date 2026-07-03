@@ -33,15 +33,22 @@ export interface SearchToolOutput {
 export interface MetadataResult {
   celex_id: string;
   title: string;
-  date_document: string;
-  date_entry_into_force: string;
-  date_end_of_validity: string;
+  /** ISO date, or null when absent. */
+  date_document: string | null;
+  /** ISO date, or null when absent. */
+  date_entry_into_force: string | null;
+  /** ISO date, or null when absent OR when it is the Cellar `9999-12-31` sentinel. */
+  date_end_of_validity: string | null;
   in_force: boolean | null;
-  date_transposition: string;
+  /** ISO date, or null when absent. */
+  date_transposition: string | null;
   resource_type: string;
   authors: string[];
   eurovoc_concepts: string[];
+  /** Directory-code entries as `"{code-tail}: {label}"`, or the bare code tail when unlabelled. */
   directory_codes: string[];
+  /** CELEX IDs of the legal acts this act is based on (its legal basis). */
+  legal_basis: string[];
   eurlex_url: string;
 }
 
