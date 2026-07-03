@@ -154,16 +154,18 @@ describe('CellarClient – Metadata', () => {
       )
     })
 
-    it('M8 – throws on SPARQL endpoint error (HTTP 500)', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        statusText: 'Internal Server Error',
-      })
+    it('M8 – throws on SPARQL endpoint error (HTTP 500, after exhausting retries)', async () => {
+      // 5xx is retryable: 1 initial attempt + 2 retries = 3 total calls
+      mockFetch
+        .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+        .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+        .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
 
-      await expect(client.metadataQuery('32021R0694', 'DEU')).rejects.toThrow(
+      const retryClient = new CellarClient({ retryDelayFn: async () => {} })
+      await expect(retryClient.metadataQuery('32021R0694', 'DEU')).rejects.toThrow(
         'SPARQL endpoint error: 500'
       )
+      expect(mockFetch).toHaveBeenCalledTimes(3)
     })
 
     it('M8b – correctly parses in_force as boolean', async () => {

@@ -5,6 +5,8 @@ import {
   DEFAULT_LANGUAGE,
   DEFAULT_LIMIT,
   REQUEST_TIMEOUT_MS,
+  MAX_RETRIES,
+  RETRY_DELAYS_MS,
 } from '../constants.js';
 import type {
   SparqlQueryParams,
@@ -104,21 +106,105 @@ export function escapeSparqlString(input: string): string {
     .replace(/\0/g, '');
 }
 
+/**
+ * Error carrying an HTTP status code, so the retry logic can decide
+ * (based on the status alone) whether a failure is retryable.
+ */
+class HttpStatusError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'HttpStatusError';
+  }
+}
+
+/** True for DOMException/Error-like objects representing an aborted/timed-out request. */
+function isTimeoutError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error.name === 'AbortError' || error.name === 'TimeoutError')
+  );
+}
+
+/**
+ * Decides whether a failure from executeSparql/fetchCellarDocument should be retried:
+ * network errors (TypeError from fetch), timeouts (AbortError/TimeoutError), and
+ * HTTP 5xx. Never 4xx or other errors.
+ */
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof HttpStatusError) {
+    return error.status >= 500;
+  }
+  if (error instanceof TypeError) {
+    return true;
+  }
+  return isTimeoutError(error);
+}
+
+export interface CellarClientOptions {
+  /** Injectable delay for retry backoff — defaults to a real setTimeout-based sleep. */
+  retryDelayFn?: (ms: number) => Promise<void>;
+}
+
 export class CellarClient {
-  private async executeSparql<T>(sparql: string): Promise<T> {
-    const response = await fetch(SPARQL_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/sparql-query',
-        Accept: 'application/sparql-results+json',
-      },
-      body: sparql,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    if (!response.ok) {
-      throw new Error(`SPARQL endpoint error: ${response.status}`);
+  private readonly retryDelayFn: (ms: number) => Promise<void>;
+
+  constructor(options: CellarClientOptions = {}) {
+    this.retryDelayFn =
+      options.retryDelayFn ??
+      ((ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)));
+  }
+
+  /**
+   * Runs `fn`, retrying on retryable failures (network errors, timeouts, HTTP 5xx)
+   * with backoff delays from RETRY_DELAYS_MS. Never retries 4xx or other errors.
+   * Rethrows the last error once retries are exhausted.
+   */
+  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (attempt >= RETRY_DELAYS_MS.length || !isRetryableError(error)) {
+          throw error;
+        }
+        await this.retryDelayFn(RETRY_DELAYS_MS[attempt]);
+      }
     }
-    return (await response.json()) as T;
+  }
+
+  private async executeSparql<T>(sparql: string): Promise<T> {
+    try {
+      return await this.withRetry(async () => {
+        const response = await fetch(SPARQL_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/sparql-query',
+            Accept: 'application/sparql-results+json',
+          },
+          body: sparql,
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+          throw new HttpStatusError(`SPARQL endpoint error: ${response.status}`, response.status);
+        }
+        return (await response.json()) as T;
+      });
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        const seconds = Math.round(REQUEST_TIMEOUT_MS / 1000);
+        throw new Error(
+          `SPARQL query timed out after ${seconds}s (after ${MAX_RETRIES} retries). ` +
+            'The Cellar endpoint is slow for broad queries — narrow the search with resource_type, date_from/date_to, or a more specific query.',
+          { cause: error },
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -226,40 +312,55 @@ export class CellarClient {
   }
 
   /**
+   * Shared REST-GET logic for fetching a document from Cellar by CELEX identifier,
+   * used by both fetchDocument() and fetchConsolidated(). Handles content negotiation
+   * (Accept/Accept-Language), redirects, timeout, and 404/406/!ok status handling.
+   * Retries on network errors, timeouts, and HTTP 5xx (never on 4xx).
+   */
+  private async fetchCellarDocument(
+    celexId: string,
+    language: string,
+    context: { notFoundError: string; notAcceptableError: string },
+  ): Promise<string> {
+    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const url = `${CELLAR_REST_BASE}/${celexId}`;
+
+    return this.withRetry(async () => {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/xhtml+xml',
+          'Accept-Language': httpLang,
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (response.status === 404) {
+        throw new HttpStatusError(context.notFoundError, 404);
+      }
+
+      if (response.status === 406) {
+        throw new HttpStatusError(context.notAcceptableError, 406);
+      }
+
+      if (!response.ok) {
+        throw new HttpStatusError(`Fetch error: ${response.status}`, response.status);
+      }
+
+      return response.text();
+    });
+  }
+
+  /**
    * Fetches a document from Cellar by CELEX identifier using content negotiation.
    * Uses Accept-Language header to select the language variant.
    */
   async fetchDocument(celex_id: string, language: string): Promise<string> {
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
-    const url = `${CELLAR_REST_BASE}/${celex_id}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/xhtml+xml',
-        'Accept-Language': httpLang,
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    return this.fetchCellarDocument(celex_id, language, {
+      notFoundError: `Document not found: ${celex_id}. The document may not be available in electronic full-text format on EUR-Lex.`,
+      notAcceptableError: `Document ${celex_id} is not available in XHTML format. Older documents may only exist as PDF on EUR-Lex.`,
     });
-
-    if (response.status === 404) {
-      throw new Error(
-        `Document not found: ${celex_id}. The document may not be available in electronic full-text format on EUR-Lex.`,
-      );
-    }
-
-    if (response.status === 406) {
-      throw new Error(
-        `Document ${celex_id} is not available in XHTML format. Older documents may only exist as PDF on EUR-Lex.`,
-      );
-    }
-
-    if (!response.ok) {
-      throw new Error(`Fetch error: ${response.status}`);
-    }
-
-    return response.text();
   }
 
   /**
@@ -483,16 +584,14 @@ export class CellarClient {
       'LIMIT 1',
     ].join('\n');
 
-    try {
-      const data = await this.executeSparql<{
-        results: { bindings: { concept: { value: string } }[] };
-      }>(sparql);
-      const bindings = data.results.bindings;
-      return bindings.length > 0 ? bindings[0].concept.value : null;
-    } catch {
-      // Timeout or SPARQL error during label resolution — return null to indicate no match
-      return null;
-    }
+    const data = await this.executeSparql<{
+      results: { bindings: { concept: { value: string } }[] };
+    }>(sparql);
+    const bindings = data.results.bindings;
+    // null means "the query succeeded and found no matching concept" — a real
+    // legitimate "not found". Network/timeout/5xx errors propagate to the caller
+    // instead of being swallowed here.
+    return bindings.length > 0 ? bindings[0].concept.value : null;
   }
 
   /**
@@ -640,39 +739,20 @@ export class CellarClient {
 
     if (!consolidatedCelex) {
       throw new Error(
-        `Keine konsolidierte Fassung für ${docType}/${year}/${number} verfügbar. ` +
-          `Verwenden Sie eurlex_fetch mit der CELEX-ID für die Original-OJ-Version.`,
+        `No consolidated version available for ${docType}/${year}/${number}. ` +
+          'Use eurlex_fetch with the CELEX ID for the original OJ version.',
       );
     }
 
-    // Step 2: Fetch from Cellar REST (same as fetchDocument)
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
-    const url = `${CELLAR_REST_BASE}/${consolidatedCelex}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/xhtml+xml',
-        'Accept-Language': httpLang,
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    // Step 2: Fetch from Cellar REST via the shared helper (same as fetchDocument)
+    const content = await this.fetchCellarDocument(consolidatedCelex, language, {
+      notFoundError:
+        `No consolidated version available for ${docType}/${year}/${number} (${consolidatedCelex} could not be retrieved). ` +
+        'Use eurlex_fetch with the CELEX ID for the original OJ version.',
+      notAcceptableError: `Consolidated document ${consolidatedCelex} is not available in XHTML format. Older documents may only exist as PDF on EUR-Lex.`,
     });
 
-    if (response.status === 404) {
-      throw new Error(
-        `Keine konsolidierte Fassung für ${docType}/${year}/${number} verfügbar (${consolidatedCelex} nicht abrufbar). ` +
-          `Verwenden Sie eurlex_fetch mit der CELEX-ID für die Original-OJ-Version.`,
-      );
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        `Consolidated document error: ${docType}/${year}/${number} (HTTP ${response.status})`,
-      );
-    }
-
     const eliUrl = `http://data.europa.eu/eli/${docType}/${year}/${number}`;
-    return { content: await response.text(), eliUrl };
+    return { content, eliUrl };
   }
 }

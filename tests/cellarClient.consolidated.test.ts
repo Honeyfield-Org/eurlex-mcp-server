@@ -86,6 +86,37 @@ describe('fetchConsolidated()', () => {
       .rejects.toThrow(/eurlex_fetch/)
   })
 
+  it('CO6-EN – "no consolidated CELEX" error message is in English', async () => {
+    mockFetch.mockResolvedValueOnce(mockSparqlEmptyResponse())
+
+    const client = new CellarClient()
+    await expect(client.fetchConsolidated('reg', 9999, 9999, 'DEU')).rejects.toThrow(
+      'No consolidated version available for reg/9999/9999. Use eurlex_fetch with the CELEX ID for the original OJ version.',
+    )
+  })
+
+  it('CO-404-EN – "consolidated document not retrievable" error message is in English', async () => {
+    mockFetch
+      .mockResolvedValueOnce(mockSparqlCelexResponse('02024R1689-20240712'))
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+
+    const client = new CellarClient()
+    let caught: unknown
+    try {
+      await client.fetchConsolidated('reg', 2024, 1689, 'DEU')
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(Error)
+    const message = (caught as Error).message
+    expect(message).toBe(
+      'No consolidated version available for reg/2024/1689 (02024R1689-20240712 could not be retrieved). Use eurlex_fetch with the CELEX ID for the original OJ version.',
+    )
+    // No German words should remain
+    expect(message).not.toMatch(/Keine|verfügbar|Verwenden|konsolidierte|Fassung/)
+  })
+
   it('CO6b – maps doc_type to CELEX prefix correctly (R=reg, L=dir, D=dec)', async () => {
     // Test directive
     mockFetch
@@ -133,14 +164,18 @@ describe('fetchConsolidated()', () => {
       .rejects.toThrow(/eurlex_fetch/)
   })
 
-  it('CO-500 – handles non-404 HTTP errors from Cellar REST', async () => {
+  it('CO-500 – handles non-404 HTTP errors from Cellar REST (after exhausting retries)', async () => {
+    // 5xx on the REST step is retryable: 1 initial attempt + 2 retries = 3 total REST calls
     mockFetch
       .mockResolvedValueOnce(mockSparqlCelexResponse('02016R0679-20180525'))
       .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce({ ok: false, status: 500 })
 
-    const client = new CellarClient()
+    const client = new CellarClient({ retryDelayFn: async () => {} })
     await expect(client.fetchConsolidated('reg', 2016, 679, 'ENG'))
       .rejects.toThrow(/500/)
+    expect(mockFetch).toHaveBeenCalledTimes(4)
   })
 
   it('CO-DEC – maps dec doc_type to D in CELEX prefix', async () => {

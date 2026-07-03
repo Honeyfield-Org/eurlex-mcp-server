@@ -71,13 +71,34 @@ describe('resolveEurovocLabel()', () => {
     expect(sparqlSent).not.toContain('work_is_about_concept_eurovoc')
   })
 
-  it('returns null on timeout instead of throwing', async () => {
-    mockFetch.mockRejectedValueOnce(new DOMException('The operation was aborted', 'AbortError'))
+  it('propagates a timeout error instead of silently returning null (no catch-all)', async () => {
+    // AbortError/TimeoutError is retryable; mock it for every attempt so retries
+    // are exhausted (1 initial + 2 retries) and the actionable timeout error surfaces.
+    mockFetch.mockRejectedValue(new DOMException('The operation was aborted', 'AbortError'))
 
-    const client = new CellarClient()
-    const uri = await client.resolveEurovocLabel('something slow')
+    const client = new CellarClient({ retryDelayFn: async () => {} })
+    await expect(client.resolveEurovocLabel('something slow')).rejects.toThrow(
+      /SPARQL query timed out/,
+    )
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+  })
 
-    expect(uri).toBeNull()
+  it('propagates a network error instead of silently returning null (no catch-all)', async () => {
+    mockFetch.mockRejectedValue(new TypeError('fetch failed'))
+
+    const client = new CellarClient({ retryDelayFn: async () => {} })
+    await expect(client.resolveEurovocLabel('something')).rejects.toThrow('fetch failed')
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('propagates a 5xx SPARQL error instead of silently returning null (no catch-all)', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Internal Server Error' })
+
+    const client = new CellarClient({ retryDelayFn: async () => {} })
+    await expect(client.resolveEurovocLabel('something')).rejects.toThrow(
+      'SPARQL endpoint error: 500',
+    )
+    expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 
   it('returns null when no concept matches the label', async () => {
