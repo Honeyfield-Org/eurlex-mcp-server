@@ -53,7 +53,8 @@ describe('buildCitationsQuery()', () => {
 
 describe('citationsQuery()', () => {
   it('C9 – returns CitationsResult with parsed citation entries', async () => {
-    const sparqlResponse = {
+    // direction 'both' runs two directional queries: cites-side + cited_by-side.
+    const citesResponse = {
       results: {
         bindings: [{
           celex: { type: 'literal', value: '32016R0679' },
@@ -64,11 +65,11 @@ describe('citationsQuery()', () => {
         }],
       },
     }
+    const citedByResponse = { results: { bindings: [] } }
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => sparqlResponse,
-    })
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => citesResponse })
+      .mockResolvedValueOnce({ ok: true, json: async () => citedByResponse })
 
     const client = new CellarClient()
     const result = await client.citationsQuery('32024R1689', 'DEU', 'both', 20)
@@ -77,6 +78,7 @@ describe('citationsQuery()', () => {
     expect(result.citations).toHaveLength(1)
     expect(result.citations[0].celex).toBe('32016R0679')
     expect(result.citations[0].relationship).toBe('cites')
+    expect(result.counts).toEqual({ cites: 1, cited_by: 0 })
   })
 
   it('C9a – throws on unexpected relationship value', async () => {
@@ -100,7 +102,8 @@ describe('citationsQuery()', () => {
   })
 
   it('C10 – returns empty citations array when no relationships found', async () => {
-    mockFetch.mockResolvedValueOnce({
+    // Both directional queries (cites + cited_by) return nothing.
+    mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({ results: { bindings: [] } }),
     })
@@ -110,6 +113,7 @@ describe('citationsQuery()', () => {
 
     expect(result.citations).toEqual([])
     expect(result.total).toBe(0)
+    expect(result.counts).toEqual({ cites: 0, cited_by: 0 })
   })
 })
 

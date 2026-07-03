@@ -42,6 +42,18 @@ export const VALID_RELATIONSHIPS = new Set<CitationEntry['relationship']>([
   'repealed_by',
 ]);
 
+/**
+ * Relationships that belong to the "cites" side (this act references others).
+ * Their inverses (cited_by/basis_for/amended_by/repealed_by) form the "cited_by"
+ * side. Used to compute CitationsResult.counts regardless of query direction.
+ */
+const CITES_SIDE_RELATIONSHIPS = new Set<CitationEntry['relationship']>([
+  'cites',
+  'based_on',
+  'amends',
+  'repeals',
+]);
+
 /** Shape of a single SPARQL binding value */
 interface SparqlBindingValue {
   type: string;
@@ -216,18 +228,24 @@ export class CellarClient {
 
     const whereLines: string[] = [];
 
-    // Resource type filter
+    // Resource type binding. When a specific type is requested we keep the filter
+    // triple and BIND that exact type as ?resType — a work can carry several
+    // resource-types, and re-deriving ?resType from a generic ?resTypeUri could
+    // report a *different* type than the one filtered on. Only for 'any' do we
+    // extract the type from the (single) ?resTypeUri binding.
+    // params.resource_type is Zod-validated against RESOURCE_TYPES, so it is safe
+    // to embed without escaping.
     if (params.resource_type !== 'any') {
       whereLines.push(
         `    ?work cdm:work_has_resource-type <http://publications.europa.eu/resource/authority/resource-type/${params.resource_type}> .`,
+        `    BIND("${params.resource_type}" AS ?resType)`,
+      );
+    } else {
+      whereLines.push(
+        '    ?work cdm:work_has_resource-type ?resTypeUri .',
+        '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resType)',
       );
     }
-
-    // Always bind the resource type
-    whereLines.push(
-      '    ?work cdm:work_has_resource-type ?resTypeUri .',
-      '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resType)',
-    );
 
     // CELEX identifier
     whereLines.push('    ?work cdm:resource_legal_id_celex ?celex .');
@@ -253,6 +271,14 @@ export class CellarClient {
       whereLines.push(`    FILTER(?date <= "${params.date_to}"^^xsd:date)`);
     }
 
+    // No ORDER BY: `ORDER BY DESC(?date)` forces Virtuoso to materialize ALL
+    // matching expressions before applying LIMIT — live-verified to time out for
+    // broad title terms ("data protection", "Datenschutz"). Instead we oversample
+    // (so Virtuoso can stream-abort early) and sort/dedup/slice client-side in
+    // sparqlQuery(). Trade-off: results are "newest-first within the fetched
+    // sample", not globally newest.
+    const oversampledLimit = Math.min(params.limit * 3, 150);
+
     const query = [
       'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
       'PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>',
@@ -260,8 +286,7 @@ export class CellarClient {
       'SELECT DISTINCT ?work ?celex ?title ?date ?resType WHERE {',
       ...whereLines,
       '}',
-      `ORDER BY DESC(?date)`,
-      `LIMIT ${params.limit}`,
+      `LIMIT ${oversampledLimit}`,
     ].join('\n');
 
     return query;
@@ -300,15 +325,30 @@ export class CellarClient {
       };
     });
 
-    // Deduplicate by CELEX ID (same document can have multiple resource types)
+    // The SPARQL query has no ORDER BY (see buildSparqlQuery) and oversamples the
+    // LIMIT, so we sort here: date descending, with empty/missing dates last.
+    // ISO date strings sort lexicographically = chronologically. Array.sort is
+    // stable, so equal-date rows keep their original order.
+    const sorted = [...results].sort((a, b) => {
+      if (a.date === b.date) return 0;
+      if (a.date === '') return 1;
+      if (b.date === '') return -1;
+      return a.date < b.date ? 1 : -1;
+    });
+
+    // Deduplicate by CELEX ID (same document can have multiple resource types).
+    // After the date-desc sort, the first occurrence per CELEX is the newest.
     const seen = new Set<string>();
-    const deduped = results.filter((r) => {
+    const deduped = sorted.filter((r) => {
       if (seen.has(r.celex)) return false;
       seen.add(r.celex);
       return true;
     });
 
-    return { results: deduped, sparql };
+    // Slice back down to the caller's requested limit (we oversampled for the sort).
+    const limited = deduped.slice(0, fullParams.limit);
+
+    return { results: limited, sparql };
   }
 
   /**
@@ -533,20 +573,19 @@ export class CellarClient {
   }
 
   /**
-   * Fetches citations/relationships for a CELEX ID from the SPARQL endpoint.
+   * Runs one directional citations query and parses its bindings into entries.
    */
-  async citationsQuery(
+  private async fetchCitationEntries(
     celexId: string,
     language: string,
-    direction: 'cites' | 'cited_by' | 'both',
+    direction: 'cites' | 'cited_by',
     limit: number,
-  ): Promise<CitationsResult> {
-    const sparql = this.buildCitationsQuery(celexId, language, direction, limit);
+  ): Promise<CitationEntry[]> {
     const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
-
+    const sparql = this.buildCitationsQuery(celexId, language, direction, limit);
     const data = await this.executeSparql<CitationsSparqlResponse>(sparql);
 
-    const citations = data.results.bindings.map((b) => {
+    return data.results.bindings.map((b) => {
       const rel = b.rel.value;
       if (!VALID_RELATIONSHIPS.has(rel as CitationEntry['relationship'])) {
         throw new Error(`Unexpected relationship value from SPARQL: ${rel}`);
@@ -560,27 +599,68 @@ export class CellarClient {
         eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${b.celex.value}`,
       };
     });
+  }
+
+  /**
+   * Fetches citations/relationships for a CELEX ID from the SPARQL endpoint.
+   *
+   * For `both`, the two directions are queried separately (each with roughly half
+   * the limit) and run in parallel. A single combined UNION query ordered by date
+   * lets recent `cited_by` rows crowd out the `cites` side entirely — live-verified.
+   * Splitting guarantees a balanced result. `cites`-side entries are listed first.
+   */
+  async citationsQuery(
+    celexId: string,
+    language: string,
+    direction: 'cites' | 'cited_by' | 'both',
+    limit: number,
+  ): Promise<CitationsResult> {
+    let citations: CitationEntry[];
+
+    if (direction === 'both') {
+      const [citesEntries, citedByEntries] = await Promise.all([
+        this.fetchCitationEntries(celexId, language, 'cites', Math.ceil(limit / 2)),
+        this.fetchCitationEntries(celexId, language, 'cited_by', Math.floor(limit / 2)),
+      ]);
+      // cites-side first, then cited_by-side
+      citations = [...citesEntries, ...citedByEntries];
+    } else {
+      citations = await this.fetchCitationEntries(celexId, language, direction, limit);
+    }
+
+    // counts classify by relationship, so they stay correct for every direction.
+    const cites = citations.filter((c) => CITES_SIDE_RELATIONSHIPS.has(c.relationship)).length;
 
     return {
       celex_id: celexId,
       citations,
       total: citations.length,
+      counts: { cites, cited_by: citations.length - cites },
     };
   }
 
   /**
    * Resolves a EuroVoc label to its concept URI via a lightweight SPARQL query.
    * Returns null if no matching concept is found.
+   *
+   * Precision: labels are filtered to the request language, and results are ordered
+   * so an exact (case-insensitive) label match wins over a mere substring match, then
+   * the shortest label — a deterministic single winner instead of an arbitrary one.
    */
-  async resolveEurovocLabel(label: string): Promise<string | null> {
+  async resolveEurovocLabel(label: string, language: string): Promise<string | null> {
+    const escaped = escapeSparqlString(label);
+    const langLower = LANGUAGE_HTTP_MAP[language] ?? 'de';
+
     const sparql = [
       'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
       'SELECT ?concept WHERE {',
       '  ?concept a skos:Concept .',
       '  ?concept skos:prefLabel ?label .',
       `  FILTER(STRSTARTS(STR(?concept), "http://eurovoc.europa.eu/"))`,
-      `  FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${escapeSparqlString(label)}")))`,
+      `  FILTER(LANG(?label) = "${langLower}")`,
+      `  FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${escaped}")))`,
       '}',
+      `ORDER BY DESC(LCASE(STR(?label)) = LCASE("${escaped}")) STRLEN(STR(?label))`,
       'LIMIT 1',
     ].join('\n');
 
@@ -668,7 +748,7 @@ export class CellarClient {
     if (isUri) {
       conceptUri = concept;
     } else {
-      const resolved = await this.resolveEurovocLabel(concept);
+      const resolved = await this.resolveEurovocLabel(concept, language);
       if (resolved === null) {
         return [];
       }
@@ -705,14 +785,23 @@ export class CellarClient {
     number: number,
   ): Promise<string | null> {
     const typeLetter = CellarClient.DOC_TYPE_CELEX_MAP[docType] ?? 'R';
-    const celexPrefix = `0${year}${typeLetter}${String(number).padStart(4, '0')}`;
+    const celexBody = `0${year}${typeLetter}${String(number).padStart(4, '0')}`;
+
+    // Anchored regex instead of a bare STRSTARTS prefix: a 4-digit number like
+    // 0679 must NOT match a longer document number (e.g. 06791). The consolidated
+    // CELEX is either the bare body or the body plus a "-YYYYMMDD" consolidation
+    // date suffix. year/typeLetter/number are Zod-validated numbers/enums (not
+    // user-controlled free text), so no escaping is required.
+    const celexRegex = `^${celexBody}(-[0-9]{8})?$`;
 
     const sparql = [
       'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
       `SELECT ?celex WHERE {`,
       `  ?work cdm:resource_legal_id_celex ?celex .`,
-      `  FILTER(STRSTARTS(STR(?celex), "${celexPrefix}"))`,
+      `  FILTER(REGEX(STR(?celex), "${celexRegex}"))`,
       `}`,
+      // Invariant: the "-YYYYMMDD" suffix sorts lexicographically, so the largest
+      // CELEX IS the newest consolidation. DESC + LIMIT 1 returns exactly that.
       `ORDER BY DESC(?celex)`,
       `LIMIT 1`,
     ].join('\n');

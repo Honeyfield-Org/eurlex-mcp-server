@@ -66,6 +66,12 @@ export interface CitationsResult {
   celex_id: string;
   citations: CitationEntry[];
   total: number;
+  /**
+   * How the returned citations split across the two directions.
+   * `cites` counts cites/based_on/amends/repeals rows (this act references others);
+   * `cited_by` counts the inverse rows (other acts reference this one).
+   */
+  counts: { cites: number; cited_by: number };
 }
 
 export interface ConsolidatedResult {

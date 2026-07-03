@@ -55,7 +55,7 @@ describe('resolveEurovocLabel()', () => {
     })
 
     const client = new CellarClient()
-    const uri = await client.resolveEurovocLabel('artificial intelligence')
+    const uri = await client.resolveEurovocLabel('artificial intelligence', 'ENG')
 
     expect(uri).toBe('http://eurovoc.europa.eu/4424')
 
@@ -67,6 +67,8 @@ describe('resolveEurovocLabel()', () => {
     expect(sparqlSent).toContain('LIMIT 1')
     // Must filter to EuroVoc namespace for performance
     expect(sparqlSent).toContain('STRSTARTS(STR(?concept), "http://eurovoc.europa.eu/")')
+    // Must filter the label to the request language
+    expect(sparqlSent).toContain('FILTER(LANG(?label) = "en")')
     // Should NOT contain document-related predicates
     expect(sparqlSent).not.toContain('work_is_about_concept_eurovoc')
   })
@@ -77,7 +79,7 @@ describe('resolveEurovocLabel()', () => {
     mockFetch.mockRejectedValue(new DOMException('The operation was aborted', 'AbortError'))
 
     const client = new CellarClient({ retryDelayFn: async () => {} })
-    await expect(client.resolveEurovocLabel('something slow')).rejects.toThrow(
+    await expect(client.resolveEurovocLabel('something slow', 'DEU')).rejects.toThrow(
       /SPARQL query timed out/,
     )
     expect(mockFetch).toHaveBeenCalledTimes(3)
@@ -87,7 +89,7 @@ describe('resolveEurovocLabel()', () => {
     mockFetch.mockRejectedValue(new TypeError('fetch failed'))
 
     const client = new CellarClient({ retryDelayFn: async () => {} })
-    await expect(client.resolveEurovocLabel('something')).rejects.toThrow('fetch failed')
+    await expect(client.resolveEurovocLabel('something', 'DEU')).rejects.toThrow('fetch failed')
     expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 
@@ -95,7 +97,7 @@ describe('resolveEurovocLabel()', () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Internal Server Error' })
 
     const client = new CellarClient({ retryDelayFn: async () => {} })
-    await expect(client.resolveEurovocLabel('something')).rejects.toThrow(
+    await expect(client.resolveEurovocLabel('something', 'DEU')).rejects.toThrow(
       'SPARQL endpoint error: 500',
     )
     expect(mockFetch).toHaveBeenCalledTimes(3)
@@ -108,7 +110,7 @@ describe('resolveEurovocLabel()', () => {
     })
 
     const client = new CellarClient()
-    const uri = await client.resolveEurovocLabel('xyznonexistent123')
+    const uri = await client.resolveEurovocLabel('xyznonexistent123', 'DEU')
 
     expect(uri).toBeNull()
   })
@@ -120,7 +122,7 @@ describe('resolveEurovocLabel()', () => {
     })
 
     const client = new CellarClient()
-    await client.resolveEurovocLabel('data "protection')
+    await client.resolveEurovocLabel('data "protection', 'DEU')
 
     const sparqlSent = mockFetch.mock.calls[0][1].body as string
     expect(sparqlSent).toContain('data \\"protection')

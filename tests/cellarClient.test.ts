@@ -406,14 +406,17 @@ describe('fetch timeout', () => {
   })
 
   it('citationsQuery passes AbortSignal to fetch', async () => {
-    mockFetch.mockResolvedValueOnce({
+    // direction 'both' issues two SPARQL POSTs (cites + cited_by) in parallel,
+    // so use a persistent mock that answers every call.
+    mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({ results: { bindings: [] } }),
     })
     const client = new CellarClient()
     await client.citationsQuery('32021R0694', 'DEU', 'both', 10)
-    const callArgs = mockFetch.mock.calls[0]
-    expect(callArgs[1].signal).toBeDefined()
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(mockFetch.mock.calls[0][1].signal).toBeDefined()
+    expect(mockFetch.mock.calls[1][1].signal).toBeDefined()
   })
 
   it('eurovocQuery passes AbortSignal to fetch (URI path)', async () => {
