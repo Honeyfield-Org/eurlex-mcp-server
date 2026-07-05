@@ -9,6 +9,7 @@ import { registerFetchTool } from './tools/fetch.js';
 import { registerMetadataTool } from './tools/metadata.js';
 import { registerSearchTool } from './tools/search.js';
 import { registerStructureTool } from './tools/structure.js';
+import { registerSummaryTool } from './tools/summary.js';
 import { registerTranspositionTool } from './tools/transposition.js';
 import { VERSION } from './version.js';
 
@@ -27,6 +28,7 @@ export function createServer(): McpServer {
   registerCaseLawTool(server);
   registerTranspositionTool(server);
   registerStructureTool(server);
+  registerSummaryTool(server);
   registerGuidePrompt(server);
 
   return server;

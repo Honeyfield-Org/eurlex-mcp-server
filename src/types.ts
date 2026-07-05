@@ -156,6 +156,63 @@ export interface TranspositionResult {
   total_found: number;
 }
 
+/**
+ * One LEGISSUM plain-language summary of an EU act, as resolved from Cellar.
+ * `uri` is the summary work's Cellar URI (used to fetch its content); it carries
+ * no CELEX of its own — summaries are identified by `legissum_id`.
+ */
+export interface SummaryMeta {
+  /** Cellar work URI of the summary, e.g. ".../resource/cellar/{uuid}". */
+  uri: string;
+  /** LEGISSUM identifier, e.g. "310401_2", or '' when absent. */
+  legissum_id: string;
+  /** Summary title in the requested language, or '' when absent. */
+  title: string;
+  /** ISO date the summary was last updated, or '' when absent. */
+  date: string;
+  /** True when the EU flags the summary as obsolete/superseded. */
+  obsolete: boolean;
+}
+
+/** A non-primary summary listed alongside the returned one (no content). */
+export interface SummaryReference {
+  legissum_id: string;
+  title: string;
+  date: string;
+  obsolete: boolean;
+}
+
+export interface SummaryResult {
+  /** The act CELEX that was queried. */
+  celex_id: string;
+  language: string;
+  /** LEGISSUM id of the returned (primary) summary. */
+  legissum_id: string;
+  title: string;
+  /** ISO date of the returned summary, or '' when absent. */
+  date: string;
+  /** True when the returned summary is flagged obsolete. */
+  obsolete: boolean;
+  /** The summary text (plain, HTML stripped), sliced to the requested window. */
+  content: string;
+  /** True when more content remains beyond `offset + returned_chars`. */
+  truncated: boolean;
+  /** Length of `content` in this response. */
+  returned_chars: number;
+  /** Length of the full processed (post-strip) summary. */
+  total_chars: number;
+  /** The offset this response was sliced from. */
+  offset: number;
+  /** Offset to request next to continue reading, or `null` when there is no more content. */
+  next_offset: number | null;
+  /** Total LEGISSUM summaries linked to this act (>= 1 here). */
+  total_summaries: number;
+  /** Other summaries for the same act (present only when total_summaries > 1). */
+  other_summaries?: SummaryReference[];
+  /** Human-readable EUR-Lex legislative-summary (LSU) page for the act. */
+  source_url: string;
+}
+
 export interface StructureResult {
   /** The resolved CELEX ID (echoed so the follow-up eurlex_fetch call is unambiguous). */
   celex_id: string;

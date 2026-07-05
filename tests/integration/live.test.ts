@@ -7,7 +7,8 @@
 
 import { CellarClient } from '../../src/services/cellarClient.js'
 import { handleEurlexStructure } from '../../src/tools/structure.js'
-import type { StructureResult } from '../../src/types.js'
+import { handleEurlexSummary, selectPrimarySummary } from '../../src/tools/summary.js'
+import type { StructureResult, SummaryResult } from '../../src/types.js'
 import { parseOutline, processContent, stripHtml } from '../../src/utils.js'
 
 const client = new CellarClient()
@@ -314,5 +315,64 @@ describe('Phase 5 – Live Validation', () => {
     expect(out.total_headings).toBeGreaterThan(50)
     expect(out.outline.some((e) => e.label === 'Article 5')).toBe(true)
     expect(out.total_chars).toBeGreaterThan(10_000)
+  }, TIMEOUT)
+
+  // SUM-LIVE-1 (Task 6): the GDPR (32016R0679) LEGISSUM summary resolves via
+  // cdm:summary_legislation_eu_summarizes_resource_legal, and its content is
+  // fetchable from the summary work's Cellar URI with the xhtml5 MIME. Exercises
+  // findSummaries + fetchSummaryDocument end-to-end in two languages.
+  it('SUM-LIVE-1: GDPR (32016R0679) summary is found and its EN + DE content is fetchable', async () => {
+    const summaries = await client.findSummaries('32016R0679', 'ENG')
+    expect(summaries.length).toBeGreaterThanOrEqual(1)
+
+    const primary = selectPrimarySummary(summaries)!
+    expect(primary.uri).toContain('publications.europa.eu/resource/cellar/')
+    expect(primary.legissum_id.length).toBeGreaterThan(0)
+    expect(primary.title.toLowerCase()).toContain('data protection')
+
+    const rawEn = await client.fetchSummaryDocument(primary.uri, 'ENG')
+    const en = stripHtml(rawEn)
+    expect(en.toLowerCase()).toContain('personal data')
+    expect(en.length).toBeGreaterThan(500)
+
+    // Accept-Language negotiation returns the German variant of the SAME summary.
+    const rawDe = await client.fetchSummaryDocument(primary.uri, 'DEU')
+    expect(stripHtml(rawDe).toLowerCase()).toContain('personenbezogen')
+  }, TIMEOUT)
+
+  // SUM-LIVE-2 (Task 6): the DSA (32022R2065) summary through the full tool handler.
+  // Proves the celex_id → summary text + metadata + LSU source_url path end-to-end.
+  it('SUM-LIVE-2: handleEurlexSummary returns the DSA (32022R2065) plain-language summary', async () => {
+    const res = await handleEurlexSummary({
+      celex_id: '32022R2065',
+      language: 'ENG',
+      max_chars: 20_000,
+      offset: 0,
+    })
+    expect(res.isError).toBeFalsy()
+
+    const out = JSON.parse(res.content[0].text) as SummaryResult
+    expect(out.celex_id).toBe('32022R2065')
+    expect(out.total_summaries).toBeGreaterThanOrEqual(1)
+    expect(out.legissum_id.length).toBeGreaterThan(0)
+    expect(out.obsolete).toBe(false)
+    expect(out.content.toLowerCase()).toContain('digital services act')
+    expect(out.content).not.toContain('<') // HTML stripped
+    expect(out.source_url).toBe(
+      'https://eur-lex.europa.eu/legal-content/en/LSU/?uri=CELEX:32022R2065',
+    )
+  }, TIMEOUT)
+
+  // SUM-LIVE-3 (Task 6): an act with no LEGISSUM summary yields a clean "no summary"
+  // message, not an error (a NIM CELEX is never itself summarized).
+  it('SUM-LIVE-3: an act without a summary returns a clean no-summary message', async () => {
+    const res = await handleEurlexSummary({
+      celex_id: '72022L2555AUT_202500243',
+      language: 'ENG',
+      max_chars: 20_000,
+      offset: 0,
+    })
+    expect(res.isError).toBeFalsy()
+    expect(res.content[0].text).toContain('No LEGISSUM summary')
   }, TIMEOUT)
 })

@@ -50,6 +50,10 @@ vi.mock('../src/tools/structure.js', () => ({
   registerStructureTool: vi.fn(),
 }))
 
+vi.mock('../src/tools/summary.js', () => ({
+  registerSummaryTool: vi.fn(),
+}))
+
 vi.mock('../src/prompts/guide.js', () => ({
   registerGuidePrompt: vi.fn(),
 }))
@@ -162,5 +166,14 @@ describe('createServer()', () => {
     createServer()
 
     expect(registerStructureTool).toHaveBeenCalledOnce()
+  })
+
+  it('S12 – createServer calls registerSummaryTool', async () => {
+    const { registerSummaryTool } = await import('../src/tools/summary.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerSummaryTool).toHaveBeenCalledOnce()
   })
 })

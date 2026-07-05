@@ -1,11 +1,13 @@
 import {
   SPARQL_ENDPOINT,
   CELLAR_REST_BASE,
+  CELLAR_SUMMARY_MIME,
   EURLEX_BASE,
   DEFAULT_LANGUAGE,
   DEFAULT_LIMIT,
   REQUEST_TIMEOUT_MS,
   MAX_RETRIES,
+  SUMMARY_LOOKUP_LIMIT,
   RETRY_DELAYS_MS,
   EUROVOC_LABEL_CACHE_TTL_MS,
   EUROVOC_LABEL_CACHE_MAX_ENTRIES,
@@ -28,6 +30,7 @@ import type {
   TranspositionQueryParams,
   TranspositionEntry,
   TranspositionResult,
+  SummaryMeta,
 } from '../types.js';
 import { sortDedupSlice } from '../utils.js';
 
@@ -126,6 +129,19 @@ interface TranspositionSparqlResponse {
       cc: SparqlBindingValue;
       title?: SparqlBindingValue;
       date?: SparqlBindingValue;
+    }[];
+  };
+}
+
+/** Shape of the LEGISSUM summary lookup SPARQL JSON results */
+interface SummarySparqlResponse {
+  results: {
+    bindings: {
+      summary: SparqlBindingValue;
+      legissumId?: SparqlBindingValue;
+      title?: SparqlBindingValue;
+      date?: SparqlBindingValue;
+      obsolete?: SparqlBindingValue;
     }[];
   };
 }
@@ -1058,6 +1074,104 @@ export class CellarClient {
       returned: results.length,
       total_found,
     };
+  }
+
+  /**
+   * Builds the SPARQL SELECT that finds the LEGISSUM plain-language summaries of
+   * an EU act. Probed 2026-07-05 (GDPR 32016R0679, DSA 32022R2065): summaries link
+   * to the act through `cdm:summary_legislation_eu_summarizes_resource_legal` — the
+   * property SPECIFIC to LEGISSUM (all 4679 subjects are resource-type LEGIS_SUM,
+   * 0 exceptions), unlike the broader `cdm:summary_summarizes_work` (43028 subjects,
+   * many non-LEGISSUM). The summary work carries no CELEX of its own, so we select
+   * its Cellar URI (?summary) to fetch content from, plus its LEGISSUM id, date and
+   * obsolete flag, and its title in the requested language. The set is anchored to
+   * one act (bounded — max 54 observed), so ORDER BY is unnecessary; selection of a
+   * primary is done client-side (selectPrimarySummary in tools/summary.ts).
+   */
+  buildSummaryQuery(celexId: string, language: string): string {
+    // The Cellar 3-letter code IS the language-authority URI suffix (no mapping).
+    const lang = language;
+    const escaped = escapeSparqlString(celexId);
+
+    return [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      '',
+      'SELECT DISTINCT ?summary ?legissumId ?date ?obsolete ?title WHERE {',
+      '  ?act cdm:resource_legal_id_celex ?celexVal .',
+      `  FILTER(STR(?celexVal) = "${escaped}")`,
+      '  ?summary cdm:summary_legislation_eu_summarizes_resource_legal ?act .',
+      '  OPTIONAL { ?summary cdm:summary_legislation_eu_id_legissum ?legissumId . }',
+      '  OPTIONAL { ?summary cdm:work_date_document ?date . }',
+      '  OPTIONAL { ?summary cdm:summary_legislation_eu_obsolete ?obsolete . }',
+      '  OPTIONAL {',
+      '    ?expr cdm:expression_belongs_to_work ?summary .',
+      `    ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/${lang}> .`,
+      '    ?expr cdm:expression_title ?title .',
+      '  }',
+      '}',
+      `LIMIT ${SUMMARY_LOOKUP_LIMIT}`,
+    ].join('\n');
+  }
+
+  /**
+   * Finds the LEGISSUM summaries of an act (see buildSummaryQuery). Returns one
+   * SummaryMeta per summary work; missing optionals become '' and an absent/
+   * non-truthy obsolete flag becomes false. An empty list means the act has no
+   * LEGISSUM summary — a legitimate result, not an error.
+   */
+  async findSummaries(celexId: string, language: string): Promise<SummaryMeta[]> {
+    const sparql = this.buildSummaryQuery(celexId, language);
+    const data = await this.executeSparql<SummarySparqlResponse>(sparql);
+
+    return data.results.bindings.map((b) => ({
+      uri: b.summary.value,
+      legissum_id: b.legissumId?.value ?? '',
+      title: b.title?.value ?? '',
+      date: b.date?.value ?? '',
+      // Cellar returns the xsd:boolean as "1"/"0" (also tolerate "true").
+      obsolete: b.obsolete?.value === '1' || b.obsolete?.value === 'true',
+    }));
+  }
+
+  /**
+   * Fetches a LEGISSUM summary's content by dereferencing its Cellar work URI with
+   * the strict xhtml5 content MIME (see CELLAR_SUMMARY_MIME) and an Accept-Language
+   * for the requested language variant. Retries on network errors/timeouts/5xx like
+   * the other Cellar fetches; a 404/406 means that language variant is unavailable.
+   *
+   * `summaryUri` is not user input — it comes from findSummaries' SPARQL results —
+   * but we still assert it is a publications.europa.eu resource URI as defense in
+   * depth before dereferencing it.
+   */
+  async fetchSummaryDocument(summaryUri: string, language: string): Promise<string> {
+    if (!/^https?:\/\/publications\.europa\.eu\/resource\//.test(summaryUri)) {
+      throw new Error(`Refusing to fetch a non-Cellar summary URI: ${summaryUri}`);
+    }
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
+
+    return this.withRetry(async () => {
+      const response = await fetch(summaryUri, {
+        method: 'GET',
+        headers: {
+          Accept: CELLAR_SUMMARY_MIME,
+          'Accept-Language': httpLang,
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (response.status === 404 || response.status === 406) {
+        throw new HttpStatusError(
+          `Summary content is not available in the requested language (${httpLang}). ` +
+            'Try another language, or read the full act with eurlex_fetch.',
+          response.status,
+        );
+      }
+      if (!response.ok) {
+        throw new HttpStatusError(`Fetch error: ${response.status}`, response.status);
+      }
+      return response.text();
+    });
   }
 
   /**
