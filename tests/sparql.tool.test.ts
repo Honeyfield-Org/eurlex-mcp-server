@@ -70,8 +70,11 @@ describe('handleEurlexSparql()', () => {
     expect(out.row_count).toBe(5000)
     expect(out.returned_rows).toBeLessThan(5000)
     expect(out.returned_rows).toBe(out.bindings?.length)
-    // The serialized bindings stay within budget.
-    expect(JSON.stringify(out.bindings).length).toBeLessThanOrEqual(40000)
+    // The FULL serialized response (envelope keys + bindings) stays within the
+    // documented ~40k budget — not just the bindings array. The response text is
+    // exactly what handleEurlexSparql returns.
+    expect(res.content[0].text.length).toBeLessThanOrEqual(40000)
+    expect(JSON.stringify(out).length).toBeLessThanOrEqual(40000)
   })
 
   it('TH5 – a rejected query never touches the network', async () => {

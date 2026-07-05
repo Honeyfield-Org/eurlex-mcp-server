@@ -37,20 +37,46 @@ const QUERY_FORM_RE = /\b(SELECT|ASK|CONSTRUCT|DESCRIBE)\b/i;
 
 /**
  * One regex that matches, in precedence order, a SPARQL token whose contents must
- * NOT be scanned for keywords or braces: triple-quoted strings, single-line
- * strings, an IRIREF, or a line comment. Ordering matters — string forms come
- * before the comment rule so a "#" inside a literal is not read as a comment, and
- * the IRIREF rule (before the comment rule) is why "#" inside `<...cdm#>` is not a
- * comment either. The IRIREF char class approximates the SPARQL grammar's: it
- * forbids whitespace (\s) and `<>"{}|^`\`. Forbidding whitespace is the load-bearing
- * part — the `<` / `<=` comparison operators (always followed by whitespace or an
- * expression) do NOT match as an IRIREF, and an IRIREF match can never span the
- * whitespace separating a keyword like SERVICE, so scrubbing never hides a live
- * keyword. (The grammar also excludes sub-space control chars, which never occur in
- * a real query; \s omits them, which also satisfies the no-control-regex lint.)
+ * NOT be scanned for keywords or braces: a backslash-escape, triple-quoted strings,
+ * single-line strings, an IRIREF, or a line comment.
+ *
+ * The FIRST alternative (`\\[\s\S]`) is the load-bearing fix for the PN_LOCAL_ESC
+ * bypass. SPARQL's PN_LOCAL_ESC production lets a prefixed local name contain a
+ * backslash-escaped char (`\_ ~ . - ! $ & ' ( ) * + , ; = / ? # @ %`), e.g.
+ * `ex:a\#b`. Without modelling that, the stray backslash falls through and the
+ * following `#`/`'`/`"` opens a comment/string that swallows the rest of the line —
+ * INCLUDING a live SERVICE clause — so the forbidden query reaches the endpoint
+ * (an UNDER-block, since validateAndPrepareSparql sends the ORIGINAL text). By
+ * consuming any `\<char>` atomically FIRST (replaced by a space), the escaped char
+ * can no longer start a token.
+ *
+ * Why this introduces no new bypass (never a NEW under-block): `.replace(/g)` scans
+ * left-to-right and resumes after each match, so this alternative can only fire on a
+ * backslash that is NOT already inside a previously-matched token. A backslash
+ * inside a string literal is never reached at top level — the string alternatives
+ * are tried at the opening quote (encountered first) and consume the whole literal,
+ * including their own interior `\.` escapes. So `\<char>` fires only on backslashes
+ * OUTSIDE strings — exactly the PN_LOCAL_ESC (and UCHAR) positions — and consumes
+ * exactly two chars. It cannot carve a live keyword: no forbidden keyword contains
+ * or starts with a backslash, and a backslash sitting immediately before a keyword
+ * is not well-formed SPARQL (a syntax error the endpoint rejects, so nothing runs).
+ * Trace `\"SELECT…SERVICE…"`: the `\"` is eaten, the quote never opens a string, and
+ * the now-bare SELECT/SERVICE are plain text → correctly rejected. Net effect: this
+ * only ever OVER-blocks (turns a `\<char>` into whitespace), never under-blocks.
+ *
+ * The remaining alternatives (unchanged): string forms come before the comment rule
+ * so a "#" inside a literal is not read as a comment, and the IRIREF rule (before the
+ * comment rule) is why "#" inside `<...cdm#>` is not a comment either. The IRIREF
+ * char class approximates the SPARQL grammar's: it forbids whitespace (\s) and
+ * `<>"{}|^`\`. Forbidding whitespace is the load-bearing part — the `<` / `<=`
+ * comparison operators (always followed by whitespace or an expression) do NOT match
+ * as an IRIREF, and an IRIREF match can never span the whitespace separating a
+ * keyword like SERVICE, so scrubbing never hides a live keyword. (The grammar also
+ * excludes sub-space control chars, which never occur in a real query; \s omits them,
+ * which also satisfies the no-control-regex lint.)
  */
 const SCRUB_TOKEN_RE =
-  /'''(?:\\.|[^\\])*?'''|"""(?:\\.|[^\\])*?"""|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|<[^<>"{}|^`\\\s]*>|#[^\n]*/g;
+  /\\[\s\S]|'''(?:\\.|[^\\])*?'''|"""(?:\\.|[^\\])*?"""|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|<[^<>"{}|^`\\\s]*>|#[^\n]*/g;
 
 /**
  * Returns the query with every string literal, line comment and IRIREF replaced by
@@ -62,7 +88,11 @@ const SCRUB_TOKEN_RE =
  * Honesty about limits (per the task brief): for a WELL-FORMED query this matches
  * the SPARQL grammar's own tokenization, so it never *under*-blocks (never hides a
  * live keyword). It can *over*-block in rare edge cases — e.g. a PREFIX literally
- * named `service:`, or a variable named `?add` — which the brief deems acceptable.
+ * named `service:`, a variable named `?add`, or a prefixed local name using a
+ * PN_LOCAL_ESC escape (`ex:a\#b` → the `\#` becomes a space, splitting the name in
+ * this DETECTION copy only) — which the brief deems acceptable. The over-block never
+ * reaches the endpoint: only this scrubbed copy is inspected; the ORIGINAL query is
+ * what executes.
  * A malformed query (e.g. an unterminated string) is a SPARQL syntax error the
  * endpoint rejects regardless, so a mis-scrub there executes nothing.
  */
@@ -146,19 +176,26 @@ export function validateAndPrepareSparql(query: string): { query: string; limitA
 }
 
 /**
- * Drops whole binding rows from the end until the serialized array fits the char
- * budget. Whole-row (never mid-row) truncation keeps every returned row a valid,
+ * Drops whole binding rows from the end until the serialized array fits `budget`
+ * characters. Whole-row (never mid-row) truncation keeps every returned row a valid,
  * complete SPARQL binding. `truncated` reports whether any rows were dropped.
+ *
+ * `budget` is the space available for the bindings array specifically — the caller
+ * passes SPARQL_RESPONSE_CHAR_BUDGET minus the surrounding response envelope so the
+ * documented cap holds for the FULL serialized payload, not just this array.
  */
-function truncateBindings(bindings: unknown[]): { included: unknown[]; truncated: boolean } {
-  if (JSON.stringify(bindings).length <= SPARQL_RESPONSE_CHAR_BUDGET) {
+function truncateBindings(
+  bindings: unknown[],
+  budget: number,
+): { included: unknown[]; truncated: boolean } {
+  if (JSON.stringify(bindings).length <= budget) {
     return { included: bindings, truncated: false };
   }
   const included: unknown[] = [];
   let size = 2; // the enclosing "[]"
   for (const row of bindings) {
     const rowSize = JSON.stringify(row).length + 1; // +1 for the "," separator
-    if (size + rowSize > SPARQL_RESPONSE_CHAR_BUDGET) break;
+    if (size + rowSize > budget) break;
     included.push(row);
     size += rowSize;
   }
@@ -182,7 +219,29 @@ export function shapeSparqlResult(raw: unknown, limitAdded: boolean): SparqlRawR
   }
 
   const bindings = Array.isArray(json.results?.bindings) ? json.results.bindings : [];
-  const { included, truncated } = truncateBindings(bindings);
+
+  // Reserve space for the response envelope (every key EXCEPT the binding rows) so
+  // the char budget covers the FULL serialized payload — measuring bindings alone
+  // let the envelope keys push the response slightly over the documented cap. The
+  // reservation is deliberately conservative (can only over-reserve, never under):
+  //   - returned_rows uses row_count's digit width (returned_rows <= row_count);
+  //   - truncated is serialized as `false` (5 chars >= `true`'s 4).
+  // We subtract 2 for the "[]" the empty-bindings shell contributes, since
+  // truncateBindings counts those brackets itself.
+  const envelopeShell: SparqlRawResult = {
+    row_count: bindings.length,
+    returned_rows: bindings.length,
+    truncated: false,
+    bindings: [],
+  };
+  if (json.head?.vars) envelopeShell.vars = json.head.vars;
+  if (limitAdded) envelopeShell.limit_added = true;
+  const bindingsBudget = Math.max(
+    0,
+    SPARQL_RESPONSE_CHAR_BUDGET - (JSON.stringify(envelopeShell).length - 2),
+  );
+
+  const { included, truncated } = truncateBindings(bindings, bindingsBudget);
 
   const result: SparqlRawResult = {
     row_count: bindings.length,
