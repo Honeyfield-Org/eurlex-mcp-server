@@ -1189,11 +1189,23 @@ export class CellarClient {
 
   /**
    * Resolves a EuroVoc label to its concept URI via a lightweight SPARQL query.
-   * Returns null if no matching concept is found.
+   * Returns null if no matching concept is found in any official EU language.
    *
    * Precision: labels are filtered to the request language, and results are ordered
    * so an exact (case-insensitive) label match wins over a mere substring match, then
    * the shortest label — a deterministic single winner instead of an arbitrary one.
+   *
+   * Cross-language fallback: a EuroVoc concept URI is language-independent — only
+   * its *labels* are per-language. Restricting attempt 1 to the request language
+   * means a caller who types an English term while the request language defaults
+   * to German gets a silent "0 results" that looks like "concept doesn't exist"
+   * but is really just a language mismatch (live-smoke finding, Task 7b). So when
+   * attempt 1 legitimately finds nothing, attempt 2 repeats the same query with
+   * the LANG() filter dropped entirely (still EuroVoc-namespace-scoped, still
+   * exact-match-preferred via the same ORDER BY) — a match in ANY language
+   * resolves the same concept. Only the FINAL outcome is cached under the
+   * label|language key: caching after attempt 1's null would permanently hide a
+   * fallback hit behind a stale "not found" for that language.
    */
   async resolveEurovocLabel(label: string, language: string): Promise<string | null> {
     const cacheKey = `${label.toLowerCase()}|${language}`;
@@ -1203,27 +1215,41 @@ export class CellarClient {
     const escaped = escapeSparqlString(label);
     const langLower = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
-    const sparql = [
-      'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
-      'SELECT ?concept WHERE {',
-      '  ?concept a skos:Concept .',
-      '  ?concept skos:prefLabel ?label .',
-      `  FILTER(STRSTARTS(STR(?concept), "http://eurovoc.europa.eu/"))`,
-      `  FILTER(LANG(?label) = "${langLower}")`,
-      `  FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${escaped}")))`,
-      '}',
-      `ORDER BY DESC(LCASE(STR(?label)) = LCASE("${escaped}")) STRLEN(STR(?label))`,
-      'LIMIT 1',
-    ].join('\n');
+    const buildQuery = (filterToLanguage: boolean): string =>
+      [
+        'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
+        'SELECT ?concept WHERE {',
+        '  ?concept a skos:Concept .',
+        '  ?concept skos:prefLabel ?label .',
+        `  FILTER(STRSTARTS(STR(?concept), "http://eurovoc.europa.eu/"))`,
+        filterToLanguage ? `  FILTER(LANG(?label) = "${langLower}")` : '',
+        `  FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${escaped}")))`,
+        '}',
+        `ORDER BY DESC(LCASE(STR(?label)) = LCASE("${escaped}")) STRLEN(STR(?label))`,
+        'LIMIT 1',
+      ]
+        .filter((line) => line !== '')
+        .join('\n');
 
-    const data = await this.executeSparql<{
-      results: { bindings: { concept: { value: string } }[] };
-    }>(sparql);
-    const bindings = data.results.bindings;
-    // null means "the query succeeded and found no matching concept" — a real
-    // legitimate "not found". Network/timeout/5xx errors propagate to the caller
-    // instead of being swallowed here (and are never cached, see below).
-    const result = bindings.length > 0 ? bindings[0].concept.value : null;
+    const runQuery = async (filterToLanguage: boolean): Promise<string | null> => {
+      const data = await this.executeSparql<{
+        results: { bindings: { concept: { value: string } }[] };
+      }>(buildQuery(filterToLanguage));
+      const bindings = data.results.bindings;
+      return bindings.length > 0 ? bindings[0].concept.value : null;
+    };
+
+    // Attempt 1: request-language labels only (previous behaviour).
+    // Network/timeout/5xx errors propagate to the caller instead of being
+    // swallowed here — and are never cached (no catch-all).
+    let result = await runQuery(true);
+
+    // Attempt 2 (fallback): only tried when attempt 1 legitimately found
+    // nothing. Its errors propagate uncaught too, same as attempt 1's.
+    if (result === null) {
+      result = await runQuery(false);
+    }
+
     this.eurovocLabelCache.set(cacheKey, result);
     return result;
   }

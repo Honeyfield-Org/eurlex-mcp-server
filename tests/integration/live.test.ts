@@ -6,6 +6,7 @@
  */
 
 import { CellarClient } from '../../src/services/cellarClient.js'
+import { handleEurlexByEurovoc } from '../../src/tools/eurovoc.js'
 import { handleEurlexSparql } from '../../src/tools/sparql.js'
 import { handleEurlexStructure } from '../../src/tools/structure.js'
 import { handleEurlexSummary, selectPrimarySummary } from '../../src/tools/summary.js'
@@ -164,6 +165,26 @@ describe('Phase 5 – Live Validation', () => {
     expect(results.length).toBeGreaterThanOrEqual(1)
     expect(results.map((r) => r.celex)).toContain('32024R1689')
     expect(results[0].eurlex_url).toContain('/es/')
+  }, TIMEOUT)
+
+  // EV-FALLBACK-LIVE-1 (Task 7b): the exact live-smoke failure case — an English
+  // concept label with the DEU default language. Before the cross-language
+  // fallback, resolveEurovocLabel filtered "data protection" to German labels
+  // only and silently returned 0 results ("concept doesn't exist"-looking, but
+  // really just a language mismatch). With the fallback, attempt 2 (no LANG
+  // filter) resolves the same eurovoc/4038 concept the English label matches.
+  it('EV-FALLBACK-LIVE-1: eurlex_by_eurovoc with an English label and the DEU default finds results', async () => {
+    const res = await handleEurlexByEurovoc({
+      concept: 'data protection',
+      resource_type: 'any',
+      language: 'DEU',
+      limit: 10,
+    })
+
+    expect(res.isError).toBeFalsy()
+    const parsed = JSON.parse(res.content[0].text) as { results: unknown[]; total: number }
+    expect(parsed.total).toBeGreaterThanOrEqual(1)
+    expect(parsed.results.length).toBeGreaterThanOrEqual(1)
   }, TIMEOUT)
 
   // ID-LIVE-1 (Task 2 probe): GDPR ELI resolves to CELEX 32016R0679, both short

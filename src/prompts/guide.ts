@@ -104,8 +104,10 @@ Legislative summaries (LEGISSUM):
 ## Languages
 The language parameter accepts all 24 official EU languages, given as the Cellar
 3-letter code: BUL, SPA, CES, DAN, DEU, EST, ELL, ENG, FRA, GLE, HRV, ITA, LAV,
-LIT, HUN, MLT, NLD, POL, POR, RON, SLK, SLV, FIN, SWE (default DEU). Titles and
-EuroVoc labels are language-specific — match your search term to the chosen language.
+LIT, HUN, MLT, NLD, POL, POR, RON, SLK, SLV, FIN, SWE (default DEU). Titles are
+language-specific — match your search term to the chosen language. EuroVoc concept
+labels (eurlex_by_eurovoc) also prefer that language, but automatically fall back
+across all 24 official languages if it has no match, so any-language labels work.
 
 ## EuroVoc / title language examples
 - language=ENG: "artificial intelligence", "data protection", "cybersecurity"
@@ -127,7 +129,7 @@ EuroVoc labels are language-specific — match your search term to the chosen la
 - Very long documents are paginated via offset/max_chars — check next_offset to continue reading
 - SPARQL response time: typically 2-10 seconds; broad title searches can be slower and may time out
 - Not every document has an XHTML version
-- EuroVoc labels are language-specific — use terms matching the language parameter
+- Title/full-text search terms are still language-specific — no cross-language fallback there
 - Not every legal act has a consolidated version`;
 
 export function registerGuidePrompt(server: McpServer): void {
