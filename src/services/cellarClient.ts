@@ -205,6 +205,19 @@ class HttpStatusError extends Error {
   }
 }
 
+/**
+ * Error for a Cellar response that succeeded at the HTTP level (2xx) but carries
+ * no usable body — an empty/whitespace-only document, which Cellar returns while
+ * a rendition is still being generated. Retryable like an HTTP 202: returning it
+ * as a successful empty document would give downstream callers no failure signal.
+ */
+class EmptyBodyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmptyBodyError';
+  }
+}
+
 /** True for DOMException/Error-like objects representing an aborted/timed-out request. */
 function isTimeoutError(error: unknown): boolean {
   return (
@@ -217,12 +230,16 @@ function isTimeoutError(error: unknown): boolean {
 
 /**
  * Decides whether a failure from executeSparql/fetchCellarDocument should be retried:
- * network errors (TypeError from fetch), timeouts (AbortError/TimeoutError), and
- * HTTP 5xx. Never 4xx or other errors.
+ * network errors (TypeError from fetch), timeouts (AbortError/TimeoutError), HTTP 5xx,
+ * HTTP 202 (rendition still generating), and an empty Cellar body (same cause).
+ * Never 4xx or other errors.
  */
 function isRetryableError(error: unknown): boolean {
   if (error instanceof HttpStatusError) {
-    return error.status >= 500;
+    return error.status >= 500 || error.status === 202;
+  }
+  if (error instanceof EmptyBodyError) {
+    return true;
   }
   if (error instanceof TypeError) {
     return true;
@@ -459,7 +476,11 @@ export class CellarClient {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          Accept: 'application/xhtml+xml',
+          // Prefer XHTML but accept legacy HTML: many older documents (most CJEU
+          // case law) hold only a text/html datastream, and Cellar 404s a
+          // single-type xhtml request against them. Cellar honours the preference
+          // order, still serving XHTML where it exists.
+          Accept: 'application/xhtml+xml, text/html',
           'Accept-Language': httpLang,
         },
         redirect: 'follow',
@@ -474,11 +495,29 @@ export class CellarClient {
         throw new HttpStatusError(context.notAcceptableError, 406);
       }
 
+      // 202 Accepted: Cellar is still generating the rendition (ok===true, so this
+      // must precede the response.ok check). Retryable — surfacing the placeholder
+      // body as success would give downstream callers no signal to fall back.
+      if (response.status === 202) {
+        throw new HttpStatusError(
+          'Cellar is still generating this document rendition (HTTP 202). Retry in a few seconds.',
+          202,
+        );
+      }
+
       if (!response.ok) {
         throw new HttpStatusError(`Fetch error: ${response.status}`, response.status);
       }
 
-      return response.text();
+      const body = await response.text();
+      // Never return an empty/whitespace-only body as a successful document: a 2xx
+      // with a blank body is Cellar mid-render (see EmptyBodyError). Retryable.
+      if (body.trim() === '') {
+        throw new EmptyBodyError(
+          'Cellar returned an empty document body. The rendition may still be generating — retry in a few seconds.',
+        );
+      }
+      return body;
     });
   }
 
@@ -488,7 +527,7 @@ export class CellarClient {
    */
   async fetchDocument(celex_id: string, language: string): Promise<string> {
     return this.fetchCellarDocument(celex_id, language, {
-      notFoundError: `Document not found: ${celex_id}. The document may not be available in electronic full-text format on EUR-Lex.`,
+      notFoundError: `Document not found: ${celex_id}. Cellar holds no XHTML or HTML rendition for it — the document may be PDF-only on EUR-Lex, or the CELEX ID may be wrong.`,
       notAcceptableError: `Document ${celex_id} is not available in XHTML format. Older documents may only exist as PDF on EUR-Lex.`,
     });
   }
