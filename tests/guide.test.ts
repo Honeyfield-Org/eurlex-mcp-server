@@ -45,6 +45,13 @@ describe('eurlex_guide content', () => {
     expect(guideSource).toContain('RECO')
   })
 
+  it('ES11 – guide mentions the round-2 tools (case_law, transposition, structure, summary)', () => {
+    expect(guideSource).toContain('eurlex_case_law')
+    expect(guideSource).toContain('eurlex_transposition')
+    expect(guideSource).toContain('eurlex_structure')
+    expect(guideSource).toContain('eurlex_summary')
+  })
+
   it('ES10 – guide mentions eurlex_sparql and its CDM cheat sheet', () => {
     expect(guideSource).toContain('eurlex_sparql')
     expect(guideSource).toContain('CDM cheat sheet')

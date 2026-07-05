@@ -165,7 +165,11 @@ export interface TranspositionResult {
   results: TranspositionEntry[];
   /** Number of measures in `results` (<= limit). */
   returned: number;
-  /** Full number of matching measures; when > returned, `results` was truncated to limit. */
+  /**
+   * Full number of matching measures; when > returned, `results` was truncated
+   * to limit. Best-effort: if the separate COUNT query fails, this falls back to
+   * `returned` (so it never over-reports what was actually retrieved).
+   */
   total_found: number;
 }
 
@@ -256,7 +260,10 @@ export interface StructureResult {
   /** Chapters/sections/articles/annexes with their plain-text offsets, in document order. */
   outline: OutlineEntry[];
   source_url: string;
-  /** Present only when no headings were detected — explains why and what to try. */
+  /**
+   * Present only when no headings were detected (explains why and what to try)
+   * or when the outline was truncated to the returned-list cap.
+   */
   note?: string;
 }
 

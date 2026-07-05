@@ -51,15 +51,27 @@ describe('Phase 4 Eval – Server', () => {
     expect(server1).not.toBe(server2)
   })
 
-  it('server registers exactly 5 tools: eurlex_by_eurovoc, eurlex_citations, eurlex_search, eurlex_fetch, eurlex_metadata', async () => {
+  it('server registers all 11 tools', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
     const { tools } = await pair.client.listTools()
     const toolNames = tools.map((t) => t.name).sort()
 
-    expect(tools).toHaveLength(6)
-    expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
+    expect(tools).toHaveLength(11)
+    expect(toolNames).toEqual([
+      'eurlex_by_eurovoc',
+      'eurlex_case_law',
+      'eurlex_citations',
+      'eurlex_consolidated',
+      'eurlex_fetch',
+      'eurlex_metadata',
+      'eurlex_search',
+      'eurlex_sparql',
+      'eurlex_structure',
+      'eurlex_summary',
+      'eurlex_transposition',
+    ])
   })
 
   it('eurlex_search has annotations readOnlyHint=true, destructiveHint=false', async () => {

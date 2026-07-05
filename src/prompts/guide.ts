@@ -8,10 +8,10 @@ const GUIDE_TEXT = `# EUR-Lex Research Guide
 Searches EU legal acts by title substring (contiguous phrase, case-insensitive — not tokenized full-text search). Supports filtering by resource_type, date_from/date_to, and language. Broad single-word queries over common terms can be slow against the Cellar SPARQL endpoint; narrow with resource_type or a date range if a search times out. Results are newest-first within the fetched sample, not necessarily the globally newest match for very broad queries.
 
 ### eurlex_fetch — Full text
-Fetches the full text of a legal act by CELEX ID. Paginate long documents with offset and max_chars — pass the previous response's next_offset to continue reading until it is null.
+Fetches the full text of a legal act. Identify it by celex_id, eli (short form "reg/2016/679" or full "http://data.europa.eu/eli/reg/2016/679/oj"), or oj_ref (post-2023 Official Journal reference, e.g. "OJ:L_202401689") — provide exactly one; eli/oj_ref are resolved to a CELEX via Cellar. Paginate long documents with offset and max_chars — pass the previous response's next_offset to continue reading until it is null.
 
 ### eurlex_metadata — Metadata lookup
-Returns dates (document, entry into force, end of validity), in-force status, authors, legal basis (CELEX IDs of the acts it is based on), EuroVoc descriptors, and directory codes.
+Returns dates (document, entry into force, end of validity, transposition), in-force status, authors, legal basis (CELEX IDs of the acts it is based on), EuroVoc descriptors, and directory codes. Identify the act by celex_id, eli, or oj_ref (exactly one) — same identifier inputs as eurlex_fetch.
 
 ### eurlex_citations — Citations & relationships
 Finds citations, legal basis, and amendments for a legal act. Directions: cites (referenced by this act), cited_by (acts referencing this one), both (a balanced split of both directions, with a counts field reporting how many of each side were found).
@@ -21,6 +21,18 @@ Searches legal acts by EuroVoc concept. Finds documents that don't have the sear
 
 ### eurlex_consolidated — Consolidated version
 Fetches the currently in-force version (with all amendments merged in) via ELI. Identify the act with celex_id (e.g. "32016R0679") OR with doc_type + year + number — provide exactly one of the two. celex_id must be a sector-3 secondary-law CELEX (3YYYY[R|L|D]NNNN). Paginate with offset and max_chars like eurlex_fetch.
+
+### eurlex_case_law — CJEU case law
+Searches EU court rulings — judgments (JUDG), orders (ORDER) and Advocate General opinions (OPIN_AG) of the Court of Justice and the General Court. Provide at least one of: query (title/party substring — CJEU titles begin with a "Judgment of the Court …" boilerplate prefix, so party names appear after it), celex_id (a sector-6 ruling CELEX, e.g. "62012CJ0131" Google Spain), ecli (e.g. "ECLI:EU:C:2014:317"), or related_celex (a sector-3 act CELEX → the case law that interprets it, e.g. "32016R0679" → GDPR case law). Optional filters: court (COURT_JUSTICE | GENERAL_COURT | any), type (JUDG | ORDER | OPIN_AG | any), language, date_from/date_to, limit. Use this for case law; eurlex_search covers only legislation.
+
+### eurlex_transposition — National transposition measures (NIM)
+Lists the national implementing measures member states enacted to transpose an EU directive — the answer to "how did member state X implement directive Y", for compliance tracking. Input celex_id is the directive's sector-3 CELEX (e.g. "32022L2555" NIS2, "31995L0046" Data Protection Directive); optionally filter by country (2-letter member-state code, e.g. "DE", "FR"). Each measure's title is stored in that member state's own official language and returned as-is (this tool does not translate titles). total_found reports the full count; results is capped at limit. Regulations and decisions generally have no NIMs.
+
+### eurlex_structure — Document outline
+Returns the outline (table of contents) of an act — its chapters, sections, articles and annexes — each with a character offset into the document's plain text. Identify the act by celex_id, eli, or oj_ref (exactly one). Use it as a map for targeted reading: read an article's offset from the outline, then call eurlex_fetch(celex_id, format:"plain", offset, max_chars) with that offset to jump straight to that article instead of paging from the top of a long act. Pass the SAME language to the follow-up fetch and keep format:"plain" — offsets are specific to the chosen language and to plain (tag-stripped) text. Heading recognition covers English, German and French.
+
+### eurlex_summary — Plain-language summary (LEGISSUM)
+Returns the EU's own plain-language "summary of legislation" (LEGISSUM) for an act, identified by celex_id, paginated like eurlex_fetch (offset/max_chars/next_offset). A good quick overview before reading the full legal text. total_summaries=0 means no summary exists (many acts have none); when several exist, the primary summary's text is returned and the rest are listed in other_summaries.
 
 ### eurlex_sparql — Raw SPARQL (expert escape hatch)
 Runs a raw, read-only SPARQL query directly against the Cellar endpoint for questions the tools above cannot express. Only SELECT and ASK are accepted; SPARQL Update and federated SERVICE clauses are rejected. A SELECT with no top-level LIMIT gets LIMIT 50 appended; a top-level LIMIT above 100 is rejected. Use the CDM cheat sheet below to build queries. Match CELEX/ELI literals with FILTER(STR(?x) = "..."), because they are typed xsd:string.
@@ -97,9 +109,14 @@ Legislative summaries (LEGISSUM):
 1. eurlex_search only matches titles → use eurlex_by_eurovoc for thematic discovery
 2. Use search terms in the language of the title
 3. No hits? Try synonyms (e.g. "AI" vs "artificial intelligence")
-4. Known CELEX ID? → Use eurlex_fetch or eurlex_metadata directly
+4. Known CELEX ID (or an ELI / OJ reference)? → eurlex_fetch or eurlex_metadata directly
 5. Legal relationships? → eurlex_citations for citation chains
 6. Consolidated version? → eurlex_consolidated for the currently in-force text
+7. A specific article of a long act? → eurlex_structure first to get the article's offset, then eurlex_fetch(format:"plain", offset) to jump straight to it
+8. Court rulings on an act? → eurlex_case_law (by ecli, sector-6 celex_id, party/title query, or related_celex of the act)
+9. How a directive was implemented nationally? → eurlex_transposition (directive celex_id, optional country)
+10. Quick plain-language overview? → eurlex_summary (LEGISSUM) before reading the full text
+11. Something the tools can't express? → eurlex_sparql (raw read-only SPARQL; use the CDM cheat sheet)
 
 ## Languages
 The language parameter accepts all 24 official EU languages, given as the Cellar
