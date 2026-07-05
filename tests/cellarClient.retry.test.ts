@@ -35,6 +35,11 @@ function rest5xx(status = 503) {
   return { ok: false, status, statusText: 'Service Unavailable' }
 }
 
+/** HTTP 202: Cellar is still generating the rendition (ok===true, placeholder body). */
+function rest202() {
+  return { ok: true, status: 202, text: async () => '' }
+}
+
 // ===========================================================================
 // executeSparql retry behaviour (exercised via sparqlQuery)
 // ===========================================================================
@@ -161,6 +166,70 @@ describe('fetchDocument() via shared fetchCellarDocument() helper — retry', ()
     expect(result).toBe('<html>ok</html>')
     expect(mockFetch).toHaveBeenCalledTimes(2)
     expect(delayFn).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ===========================================================================
+// fetchCellarDocument — issue #30: HTTP 202 (rendition still generating) and
+// empty-body handling. Neither may surface as a successful empty document.
+// ===========================================================================
+describe('fetchDocument() — rendition-pending (202) and empty-body guard', () => {
+  it('retries on 202 (rendition generating) then succeeds once it is ready', async () => {
+    const { client, delayFn } = makeClientWithFakeDelay()
+    mockFetch.mockResolvedValueOnce(rest202()).mockResolvedValueOnce(restOk('<html>ready</html>'))
+
+    const result = await client.fetchDocument('62021CJ0607', 'ENG')
+
+    expect(result).toBe('<html>ready</html>')
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(delayFn).toHaveBeenCalledTimes(1)
+    expect(delayFn).toHaveBeenCalledWith(500)
+  })
+
+  it('rejects with a "still generating / retry" error when 202 persists (never empty success)', async () => {
+    const { client, delayFn } = makeClientWithFakeDelay()
+    mockFetch
+      .mockResolvedValueOnce(rest202())
+      .mockResolvedValueOnce(rest202())
+      .mockResolvedValueOnce(rest202())
+
+    await expect(client.fetchDocument('62021CJ0488', 'ENG')).rejects.toThrow(
+      /still generating.*retry/i,
+    )
+
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+    expect(delayFn).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects on an empty body instead of resolving with "" (retries first)', async () => {
+    const { client } = makeClientWithFakeDelay()
+    mockFetch.mockResolvedValue(restOk(''))
+
+    await expect(client.fetchDocument('62021CJ0488', 'ENG')).rejects.toThrow(
+      /empty document body.*retry/i,
+    )
+
+    // Empty body is retryable: 3 total attempts, then a loud error (not "").
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('rejects on a whitespace-only body (treated as empty)', async () => {
+    const { client } = makeClientWithFakeDelay()
+    mockFetch.mockResolvedValue(restOk('   \n\t  '))
+
+    await expect(client.fetchDocument('62021CJ0488', 'ENG')).rejects.toThrow(/empty document body/i)
+
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('sends Accept: "application/xhtml+xml, text/html" (xhtml preferred, html fallback)', async () => {
+    const { client } = makeClientWithFakeDelay()
+    mockFetch.mockResolvedValueOnce(restOk('<html>ok</html>'))
+
+    await client.fetchDocument('62005CJ0001', 'ENG')
+
+    const [, init] = mockFetch.mock.calls[0]
+    expect(init.headers.Accept).toBe('application/xhtml+xml, text/html')
   })
 })
 

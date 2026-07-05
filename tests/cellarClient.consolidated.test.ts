@@ -62,7 +62,7 @@ describe('fetchConsolidated()', () => {
     // Second call should be Cellar REST with the consolidated CELEX
     const [url2, opts2] = mockFetch.mock.calls[1] as [string, RequestInit]
     expect(url2).toContain('publications.europa.eu/resource/celex/02024R1689-20240712')
-    expect((opts2.headers as Record<string, string>).Accept).toBe('application/xhtml+xml')
+    expect((opts2.headers as Record<string, string>).Accept).toBe('application/xhtml+xml, text/html')
     expect((opts2.headers as Record<string, string>)['Accept-Language']).toBe('de')
   })
 

@@ -179,7 +179,7 @@ describe('Phase 5 Eval – Validation Matrix', () => {
       const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit]
       expect(url).toContain('publications.europa.eu/resource/celex')
       const headers = options.headers as Record<string, string>
-      expect(headers['Accept']).toBe('application/xhtml+xml')
+      expect(headers['Accept']).toBe('application/xhtml+xml, text/html')
     })
 
     it('V11: fetchDocument DEU sets Accept-Language: de', async () => {

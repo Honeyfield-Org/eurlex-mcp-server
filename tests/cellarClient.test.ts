@@ -139,7 +139,7 @@ describe('fetchDocument()', () => {
     })
 
     const client = new CellarClient()
-    await expect(client.fetchDocument('00000X0000', 'DEU')).rejects.toThrow('Document not found: 00000X0000. The document may not be available in electronic full-text format on EUR-Lex.')
+    await expect(client.fetchDocument('00000X0000', 'DEU')).rejects.toThrow('Document not found: 00000X0000. Cellar holds no XHTML or HTML rendition for it — the document may be PDF-only on EUR-Lex, or the CELEX ID may be wrong.')
   })
 
   it('T8 – uses Cellar REST URL with content negotiation headers', async () => {
@@ -157,7 +157,7 @@ describe('fetchDocument()', () => {
     expect(url).toBe('https://publications.europa.eu/resource/celex/32021R0694')
 
     const headers = options.headers as Record<string, string>
-    expect(headers['Accept']).toBe('application/xhtml+xml')
+    expect(headers['Accept']).toBe('application/xhtml+xml, text/html')
     expect(headers['Accept-Language']).toBe('en')
   })
 
@@ -313,7 +313,7 @@ describe('fetchDocument() – old/unavailable documents', () => {
       .rejects.toThrow('Document 31995L0046 is not available in XHTML format. Older documents may only exist as PDF on EUR-Lex.')
   })
 
-  it('T14f – 404 error message includes hint about electronic format', async () => {
+  it('T14f – 404 error message includes hint about missing renditions', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 404,
@@ -322,7 +322,7 @@ describe('fetchDocument() – old/unavailable documents', () => {
 
     const client = new CellarClient()
     await expect(client.fetchDocument('31995L0046', 'DEU'))
-      .rejects.toThrow('The document may not be available in electronic full-text format on EUR-Lex.')
+      .rejects.toThrow('Cellar holds no XHTML or HTML rendition for it — the document may be PDF-only on EUR-Lex, or the CELEX ID may be wrong.')
   })
 })
 
