@@ -163,6 +163,19 @@ export function escapeSparqlString(input: string): string {
 }
 
 /**
+ * Escapes regex metacharacters so a literal character sequence embedded in a
+ * SPARQL `REGEX(...)` pattern cannot be misinterpreted as regex syntax.
+ * Needed because CELEX_REGEX (src/constants.ts) allows parens in the body
+ * (e.g. a corrigendum suffix like "R(01)"), which are regex metacharacters.
+ * Run this BEFORE escapeSparqlString: this escapes for the regex engine,
+ * escapeSparqlString then escapes the resulting backslashes for the SPARQL
+ * string-literal syntax the pattern is embedded in.
+ */
+function escapeRegexMetachars(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * Error carrying an HTTP status code, so the retry logic can decide
  * (based on the status alone) whether a failure is retryable.
  */
@@ -913,19 +926,30 @@ export class CellarClient {
    * `cdm:measure_national_implementing_implemented_by_country` (an
    * alpha-3 country-authority URI); the title from `cdm:work_title`, which for
    * a NIM exists only in the member state's own language (no `expression_title`).
+   *
+   * The prefix constraint uses an ANCHORED `REGEX`, not `STRSTARTS` (fixed
+   * post-review, mirrors findConsolidatedCelex's anchored REGEX below): a bare
+   * prefix match would let a superstring directive body (e.g. body "2555" vs.
+   * another directive's body "25551") through, since "72022L25551..." also
+   * starts with "72022L2555". Per probe P6 (docs/sdd/r2-task-4-report.md),
+   * after the directive body a NIM CELEX always continues with exactly a
+   * 3-letter country code and an underscore, so anchoring on
+   * `^<body>[A-Z]{3}_` rules out any such superstring. The body may contain
+   * the parens CELEX_REGEX allows, so regex metacharacters are escaped first.
    */
   private transpositionWhereLines(params: TranspositionQueryParams): string[] {
     const escapedCelex = escapeSparqlString(params.celex_id);
     // NIM CELEX = 7 + <sector-3 body> + <alpha-3 country> + "_" + <number>.
     // Strip the single leading sector digit to get the body; prefix with 7.
     const nimPrefix = `7${params.celex_id.slice(1)}`;
+    const nimCelexRegex = `^${escapeRegexMetachars(nimPrefix)}[A-Z]{3}_`;
 
     const lines = [
       '    ?dir cdm:resource_legal_id_celex ?dirCelex .',
       `    FILTER(STR(?dirCelex) = "${escapedCelex}")`,
       '    ?nim cdm:measure_national_implementing_implements_resource_legal ?dir .',
       '    ?nim cdm:resource_legal_id_celex ?celex .',
-      `    FILTER(STRSTARTS(STR(?celex), "${escapeSparqlString(nimPrefix)}"))`,
+      `    FILTER(REGEX(STR(?celex), "${escapeSparqlString(nimCelexRegex)}"))`,
       '    ?nim cdm:measure_national_implementing_implemented_by_country ?country .',
     ];
 
@@ -987,12 +1011,22 @@ export class CellarClient {
    * authority suffixes, mapped back to friendly 2-letter codes for output
    * (falling back to the raw alpha-3 for non-member-state codes such as "GBR"
    * on pre-Brexit directives).
+   *
+   * The count query is best-effort (`Promise.allSettled`, not `Promise.all`):
+   * a slow/failing COUNT must not discard an otherwise-valid page of results,
+   * so on count failure `total_found` falls back to the number of returned
+   * entries instead of the call throwing. The page query itself stays fatal.
    */
   async transpositionQuery(params: TranspositionQueryParams): Promise<TranspositionResult> {
-    const [data, countData] = await Promise.all([
+    const [dataResult, countResult] = await Promise.allSettled([
       this.executeSparql<TranspositionSparqlResponse>(this.buildTranspositionQuery(params)),
       this.executeSparql<CountSparqlResponse>(this.buildTranspositionCountQuery(params)),
     ]);
+
+    if (dataResult.status === 'rejected') {
+      throw dataResult.reason;
+    }
+    const data = dataResult.value;
 
     const httpLang = LANGUAGE_ISO_MAP[params.language] ?? DEFAULT_ISO;
 
@@ -1012,7 +1046,11 @@ export class CellarClient {
     // guarantees one row per CELEX and a stable date-desc order.
     const results = sortDedupSlice(entries, params.limit);
 
-    const total_found = Number(countData.results.bindings[0]?.n?.value ?? results.length);
+    // Best-effort fallback: count failed → report exactly what we returned.
+    const total_found =
+      countResult.status === 'fulfilled'
+        ? Number(countResult.value.results.bindings[0]?.n?.value ?? results.length)
+        : results.length;
 
     return {
       celex_id: params.celex_id,

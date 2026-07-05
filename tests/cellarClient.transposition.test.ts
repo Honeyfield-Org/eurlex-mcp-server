@@ -48,16 +48,28 @@ describe('buildTranspositionQuery()', () => {
     expect(sparql).toContain('FILTER(STR(?dirCelex) = "32022L2555")')
   })
 
-  it('T2 – ties each NIM CELEX to this directive via the derived sector-7 prefix', () => {
+  it('T2 – ties each NIM CELEX to this directive via an anchored regex on the derived sector-7 prefix', () => {
     // NIM prefix = "7" + directive body (celex minus leading sector digit).
+    // Anchored (not a bare STRSTARTS prefix) so a superstring body cannot match.
     const sparql = client.buildTranspositionQuery(params({ celex_id: '32022L2555' }))
-    expect(sparql).toContain('STRSTARTS(STR(?celex), "72022L2555")')
+    expect(sparql).toContain('FILTER(REGEX(STR(?celex), "^72022L2555[A-Z]{3}_"))')
   })
 
   it('T3 – derives the prefix from the actual directive, not a hardcoded one', () => {
     const sparql = client.buildTranspositionQuery(params({ celex_id: '31995L0046' }))
-    expect(sparql).toContain('STRSTARTS(STR(?celex), "71995L0046")')
+    expect(sparql).toContain('FILTER(REGEX(STR(?celex), "^71995L0046[A-Z]{3}_"))')
     expect(sparql).toContain('FILTER(STR(?dirCelex) = "31995L0046")')
+  })
+
+  it('T2b – anchored regex rejects a superstring directive body (2555 vs 25551)', () => {
+    const sparql = client.buildTranspositionQuery(params({ celex_id: '32022L2555' }))
+    const celexRegex = extractCelexRegex(sparql)
+
+    // A real NIM of THIS directive: prefix + exactly a 3-letter country code + "_".
+    expect(celexRegex.test('72022L2555AUT_202500243')).toBe(true)
+    // A NIM of a DIFFERENT directive whose body ("25551") merely starts with the
+    // same characters must NOT match — the bug STRSTARTS had.
+    expect(celexRegex.test('72022L25551AUT_1')).toBe(false)
   })
 
   it('T4 – selects country, title (work_title) and date, and reads country tail into ?cc', () => {
@@ -94,10 +106,32 @@ describe('buildTranspositionQuery()', () => {
   it('T9 – escapes double-quotes in celex_id (defense-in-depth)', () => {
     const sparql = client.buildTranspositionQuery(params({ celex_id: '3"x' }))
     expect(sparql).toContain('3\\"x')
-    // The derived prefix also escapes the injected quote.
-    expect(sparql).toContain('STRSTARTS(STR(?celex), "7\\"x")')
+    // The derived prefix also escapes the injected quote inside the anchored regex.
+    expect(sparql).toContain('REGEX(STR(?celex), "^7\\"x[A-Z]{3}_")')
   })
 })
+
+/**
+ * Pulls the pattern out of the generated `REGEX(STR(?celex), "...")` filter and
+ * reverses escapeSparqlString's escaping (inverse of \\ and \"), so tests can
+ * exercise the actual regex semantics with a native RegExp instead of asserting
+ * on brittle escaped-string literals.
+ */
+function extractCelexRegex(sparql: string): RegExp {
+  const match = sparql.match(/REGEX\(STR\(\?celex\), "((?:\\.|[^"\\])*)"\)\)/)
+  if (!match) throw new Error('REGEX(STR(?celex), ...) filter not found in generated SPARQL')
+  let pattern = ''
+  const escaped = match[1]
+  for (let i = 0; i < escaped.length; i++) {
+    if (escaped[i] === '\\' && i + 1 < escaped.length) {
+      pattern += escaped[i + 1]
+      i++
+    } else {
+      pattern += escaped[i]
+    }
+  }
+  return new RegExp(pattern)
+}
 
 describe('transpositionQuery()', () => {
   it('T10 – maps rows to entries: alpha-3→alpha-2 country, eurlex_url, celex', async () => {
@@ -196,5 +230,26 @@ describe('transpositionQuery()', () => {
 
     const bodies = mockFetch.mock.calls.map((c) => String((c[1] as RequestInit).body))
     expect(bodies.some((b) => b.includes('authority/country/AUT>'))).toBe(true)
+  })
+
+  it('T17 – a rejected COUNT query does not fail the call; total_found falls back to the returned entries', async () => {
+    const entries = [
+      nimRow('72022L2555AUT_1', 'AUT', 'NIS-Gesetz', '2025-01-02'),
+      nimRow('72022L2555DEU_2', 'DEU', 'NIS2-Umsetzungsgesetz', '2024-11-05'),
+    ]
+    mockFetch.mockImplementation(async (_url: string, options: RequestInit) => {
+      const body = String(options.body)
+      if (body.includes('COUNT(')) {
+        throw new Error('SPARQL endpoint error: 500')
+      }
+      return { ok: true, json: async () => ({ results: { bindings: entries } }) }
+    })
+    const client = new CellarClient()
+
+    const result = await client.transpositionQuery(params())
+
+    expect(result.returned).toBe(2)
+    expect(result.total_found).toBe(result.results.length)
+    expect(result.results[0].celex).toBe('72022L2555AUT_1')
   })
 })
