@@ -46,7 +46,7 @@ export async function handleEurlexSearch(input: {
 export function registerSearchTool(server: McpServer): void {
   server.tool(
     'eurlex_search',
-    'Searches EU legal acts by title substring (contiguous phrase, case-insensitive — not tokenized full-text search). For topic-based discovery use eurlex_by_eurovoc instead. Broad single-word terms can be slow; narrow with resource_type or date_from/date_to. Supported languages: German, English, French. Results are newest-first within the fetched sample, not necessarily the globally newest match for very broad queries.',
+    'Searches EU legal acts by title substring (contiguous phrase, case-insensitive — not tokenized full-text search). For topic-based discovery use eurlex_by_eurovoc instead. Broad single-word terms can be slow; narrow with resource_type or date_from/date_to. Supports all 24 official EU languages (pass the Cellar 3-letter code, e.g. DEU, ENG, FRA, POL, SPA); match the query term to the chosen language. Results are newest-first within the fetched sample, not necessarily the globally newest match for very broad queries.',
     searchSchema.shape,
     {
       title: 'Search EU law by title',

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { CELEX_REGEX } from '../constants.js';
+import { LANGUAGE_ENUM } from '../languages.js';
 
 export const consolidatedSchema = z
   .object({
@@ -34,10 +35,9 @@ export const consolidatedSchema = z
       .describe(
         'Document number, e.g. 1689. Required together with doc_type and year when celex_id is not used.',
       ),
-    language: z
-      .enum(['DEU', 'ENG', 'FRA'])
-      .default('DEU')
-      .describe('Language of the returned text'),
+    language: LANGUAGE_ENUM.default('DEU').describe(
+      'Language of the returned text, as a Cellar 3-letter code (any of the 24 official EU languages, e.g. DEU, ENG, FRA, POL, SPA)',
+    ),
     format: z
       .enum(['xhtml', 'plain'])
       .default('xhtml')

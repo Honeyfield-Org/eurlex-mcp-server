@@ -59,6 +59,12 @@ describe('citationsSchema', () => {
   })
 
   it('rejects unknown language', () => {
-    expect(() => citationsSchema.parse({ celex_id: '32024R1689', language: 'ITA' })).toThrow()
+    // 'ITA' is now valid (Italian is one of the 24 EU languages); use a fantasy code.
+    expect(() => citationsSchema.parse({ celex_id: '32024R1689', language: 'XXX' })).toThrow()
+  })
+
+  it('accepts a non-DE/EN/FR language (ITA)', () => {
+    const result = citationsSchema.parse({ celex_id: '32024R1689', language: 'ITA' })
+    expect(result.language).toBe('ITA')
   })
 })

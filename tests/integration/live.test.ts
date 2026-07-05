@@ -135,4 +135,29 @@ describe('Phase 5 – Live Validation', () => {
       client.metadataQuery('99999X9999', 'DEU')
     ).rejects.toThrow(/No metadata found for CELEX/)
   }, TIMEOUT)
+
+  // LANG-LIVE-1 (Task 1 probe): a non-DE/EN/FR language works end-to-end.
+  // Exercises the Polish language-authority URI (.../language/POL) for the title
+  // AND the "pl" SPARQL LANG() filter for EuroVoc labels, plus the /pl/ eur-lex URL.
+  it('LANG-LIVE-1: metadataQuery in Polish (POL) for AI Act (32024R1689)', async () => {
+    const result = await client.metadataQuery('32024R1689', 'POL')
+
+    expect(result.celex_id).toBe('32024R1689')
+    expect(result.title.toLowerCase()).toContain('sztucznej inteligencji')
+    // EuroVoc labels only come back when the "pl" LANG() filter matches.
+    expect(result.eurovoc_concepts.length).toBeGreaterThan(0)
+    expect(result.eurlex_url).toContain('/pl/')
+  }, TIMEOUT)
+
+  // LANG-LIVE-2 (Task 1 probe): Spanish EuroVoc label resolution + URI.
+  // Exercises resolveEurovocLabel with the "es" LANG() filter and buildEurovocQuery
+  // with the .../language/SPA URI. The AI concept label "inteligencia artificial"
+  // resolves to eurovoc/3030 and finds the AI Act.
+  it('LANG-LIVE-2: eurovocQuery via Spanish (SPA) label finds the AI Act', async () => {
+    const results = await client.eurovocQuery('inteligencia artificial', 'REG', 'SPA', 50)
+
+    expect(results.length).toBeGreaterThanOrEqual(1)
+    expect(results.map((r) => r.celex)).toContain('32024R1689')
+    expect(results[0].eurlex_url).toContain('/es/')
+  }, TIMEOUT)
 })

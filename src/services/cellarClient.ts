@@ -14,6 +14,7 @@ import {
   METADATA_CACHE_TTL_MS,
   METADATA_CACHE_MAX_ENTRIES,
 } from '../constants.js';
+import { LANGUAGE_ISO_MAP } from '../languages.js';
 import type {
   SparqlQueryParams,
   SearchResult,
@@ -24,19 +25,14 @@ import type {
 
 import { TtlCache } from './ttlCache.js';
 
-/** Maps 3-letter language codes to CDM expression language URI suffixes */
-const LANGUAGE_URI_MAP: Record<string, string> = {
-  DEU: 'DEU',
-  ENG: 'ENG',
-  FRA: 'FRA',
-};
-
-/** Maps 3-letter language codes to HTTP Accept-Language values */
-const LANGUAGE_HTTP_MAP: Record<string, string> = {
-  DEU: 'de',
-  ENG: 'en',
-  FRA: 'fr',
-};
+/**
+ * Fallback ISO 639-1 tag when a language code is unknown to LANGUAGE_ISO_MAP.
+ * In practice unreachable — the `language` field of every tool schema is
+ * Zod-validated against LANGUAGE_ENUM, whose codes are exactly the map keys.
+ * "de" keeps the pre-existing behaviour for any internal caller that passes a
+ * raw (non-schema) code.
+ */
+const DEFAULT_ISO = 'de';
 
 /** Valid citation relationship types between EU legal acts */
 export const VALID_RELATIONSHIPS = new Set<CitationEntry['relationship']>([
@@ -253,7 +249,9 @@ export class CellarClient {
    * Builds a SPARQL SELECT query from the given parameters.
    */
   buildSparqlQuery(params: SparqlQueryParams): string {
-    const lang = LANGUAGE_URI_MAP[params.language] ?? params.language;
+    // The Cellar 3-letter code IS the language-authority URI suffix
+    // (.../authority/language/POL etc.), so no mapping is needed here.
+    const lang = params.language;
     const escaped = escapeSparqlString(params.query);
 
     const whereLines: string[] = [];
@@ -351,7 +349,7 @@ export class CellarClient {
         title: binding.title.value,
         date: binding.date?.value ?? '',
         type: binding.resType.value,
-        eurlex_url: `${EURLEX_BASE}/${LANGUAGE_HTTP_MAP[lang] ?? 'de'}/TXT/?uri=CELEX:${celex}`,
+        eurlex_url: `${EURLEX_BASE}/${LANGUAGE_ISO_MAP[lang] ?? DEFAULT_ISO}/TXT/?uri=CELEX:${celex}`,
       };
     });
 
@@ -392,7 +390,7 @@ export class CellarClient {
     language: string,
     context: { notFoundError: string; notAcceptableError: string },
   ): Promise<string> {
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
     const url = `${CELLAR_REST_BASE}/${celexId}`;
 
     return this.withRetry(async () => {
@@ -437,8 +435,9 @@ export class CellarClient {
    * Builds a SPARQL query to retrieve metadata for a given CELEX ID.
    */
   buildMetadataQuery(celexId: string, language: string): string {
-    const lang = LANGUAGE_URI_MAP[language] ?? language;
-    const langLower = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    // 3-letter code = language-authority URI suffix; ISO tag drives LANG() filters.
+    const lang = language;
+    const langLower = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
     const query = [
       'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
@@ -520,7 +519,7 @@ export class CellarClient {
     }
 
     const binding = data.results.bindings[0];
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
     const splitConcat = (value: string | undefined): string[] => {
       if (!value) return [];
@@ -573,7 +572,8 @@ export class CellarClient {
     direction: 'cites' | 'cited_by' | 'both',
     limit: number,
   ): string {
-    const lang = LANGUAGE_URI_MAP[language] ?? language;
+    // 3-letter code = language-authority URI suffix (no mapping needed).
+    const lang = language;
     const escaped = escapeSparqlString(celexId);
 
     // Use FILTER(STR(...)) for CELEX matching — literals may be typed as xsd:string
@@ -650,7 +650,7 @@ export class CellarClient {
     direction: 'cites' | 'cited_by',
     limit: number,
   ): Promise<CitationEntry[]> {
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
     const sparql = this.buildCitationsQuery(celexId, language, direction, limit);
     const data = await this.executeSparql<CitationsSparqlResponse>(sparql);
 
@@ -722,7 +722,7 @@ export class CellarClient {
     if (cached !== undefined) return cached;
 
     const escaped = escapeSparqlString(label);
-    const langLower = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const langLower = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
     const sparql = [
       'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
@@ -760,7 +760,8 @@ export class CellarClient {
     language: string,
     limit: number,
   ): string {
-    const lang = LANGUAGE_URI_MAP[language] ?? language;
+    // 3-letter code = language-authority URI suffix (no mapping needed).
+    const lang = language;
 
     // Only accept URIs
     if (!conceptUri.startsWith('http')) {
@@ -831,7 +832,7 @@ export class CellarClient {
     }
 
     const sparql = this.buildEurovocQuery(conceptUri, resourceType, language, limit);
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
     const data = await this.executeSparql<SparqlResponse>(sparql);
     return data.results.bindings.map((b) => ({

@@ -49,11 +49,18 @@ JUDG (judgment), ORDER (court order), OPIN_AG (Advocate General opinion)
 5. Legal relationships? → eurlex_citations for citation chains
 6. Consolidated version? → eurlex_consolidated for the currently in-force text
 
-## EuroVoc language examples
+## Languages
+The language parameter accepts all 24 official EU languages, given as the Cellar
+3-letter code: BUL, SPA, CES, DAN, DEU, EST, ELL, ENG, FRA, GLE, HRV, ITA, LAV,
+LIT, HUN, MLT, NLD, POL, POR, RON, SLK, SLV, FIN, SWE (default DEU). Titles and
+EuroVoc labels are language-specific — match your search term to the chosen language.
+
+## EuroVoc / title language examples
 - language=ENG: "artificial intelligence", "data protection", "cybersecurity"
 - language=DEU: "künstliche Intelligenz", "Datenschutz", "Cybersicherheit"
 - language=FRA: "intelligence artificielle", "protection des données"
-EuroVoc labels are language-specific — match the language to the language parameter!
+- language=POL: "sztuczna inteligencja"
+- language=SPA: "inteligencia artificial"
 
 ## Well-known CELEX IDs
 - AI Act: 32024R1689

@@ -86,6 +86,27 @@ describe('searchSchema', () => {
     expect(result.resource_type).toBe('any')
   })
 
+  // ---- language enum (all 24 official EU languages) ----
+  it('SS18 – accepts a non-DE/EN/FR language code (POL)', () => {
+    const result = searchSchema.parse({ query: 'test', language: 'POL' })
+    expect(result.language).toBe('POL')
+  })
+
+  it('SS19 – accepts further non-legacy codes (SPA, SWE, GLE)', () => {
+    for (const lang of ['SPA', 'SWE', 'GLE']) {
+      expect(searchSchema.parse({ query: 'test', language: lang }).language).toBe(lang)
+    }
+  })
+
+  it('SS20 – rejects a fantasy language code', () => {
+    expect(() => searchSchema.parse({ query: 'test', language: 'XX' })).toThrow(ZodError)
+    expect(() => searchSchema.parse({ query: 'test', language: 'POLISH' })).toThrow(ZodError)
+  })
+
+  it('SS21 – defaults language to DEU', () => {
+    expect(searchSchema.parse({ query: 'test' }).language).toBe('DEU')
+  })
+
   // ---- strict mode ----
   it('SS17 – rejects extra fields in strict mode', () => {
     expect(() => searchSchema.parse({ query: 'test', extra: 'field' })).toThrow(ZodError)
