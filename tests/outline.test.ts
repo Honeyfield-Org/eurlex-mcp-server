@@ -135,6 +135,25 @@ describe('parseOutline() — variant / older structure (synthetic plain text)', 
     for (const e of entries) expect(plain.slice(e.offset).startsWith(e.label)).toBe(true)
   })
 
+  it('OV1a – detects ALL-CAPS Article headings (ARTICLE and ARTIKEL)', () => {
+    const plain = [
+      'CHAPTER I',
+      'Intro chapter',
+      'ARTICLE 5',
+      'The fifth article',
+      'ARTIKEL 6',
+      'The sixth article',
+    ].join('\n')
+
+    const { entries } = parseOutline(plain)
+    const labels = entries.map((e) => e.label)
+    expect(labels).toEqual(['CHAPTER I', 'ARTICLE 5', 'ARTIKEL 6'])
+    expect(entries.find((e) => e.label === 'ARTICLE 5')?.level).toBe(4)
+    expect(entries.find((e) => e.label === 'ARTIKEL 6')?.level).toBe(4)
+    // Offset lands on the label's first char (leading whitespace skipped).
+    for (const e of entries) expect(plain.slice(e.offset).startsWith(e.label)).toBe(true)
+  })
+
   it('OV2 – tolerates leading whitespace and points the offset past it', () => {
     const plain = 'body\n   Article 7\n   Some rule'
     const { entries } = parseOutline(plain)

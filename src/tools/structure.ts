@@ -47,6 +47,8 @@ export async function handleEurlexStructure(input: {
         'unstructured (e.g. a short decision), available only as PDF, or in a language whose ' +
         'heading words are not recognized (recognition covers EN, DE and FR — try language:"ENG"). ' +
         'The full text is still readable with eurlex_fetch.';
+    } else if (truncated) {
+      result.note = `Outline truncated to ${OUTLINE_MAX_ENTRIES} of ${total} headings.`;
     }
 
     return {

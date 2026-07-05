@@ -97,6 +97,28 @@ describe('handleEurlexStructure()', () => {
     expect(out.note).toContain('No chapter/section/article/annex headings')
   })
 
+  it('ST6a – truncated outline: returned entries capped but total_headings and note reflect the full count', async () => {
+    // Generate XHTML with 305 articles (exceeds the 300-entry cap).
+    // Each article is on its own line in the stripped plain text.
+    const lines: string[] = ['<html><body>']
+    for (let n = 1; n <= 305; n++) {
+      lines.push(`<p class="oj-ti-art">Article ${n}</p>`)
+      lines.push(`<p class="oj-sti-art">Title of article ${n}</p>`)
+    }
+    lines.push('</body></html>')
+    const html = lines.join('\n')
+    mockFetchDocument.mockResolvedValueOnce(html)
+
+    const res = await handleEurlexStructure({ celex_id: '32024R1689', language: 'ENG' })
+
+    expect(res.isError).toBeFalsy()
+    const out = parse(res)
+    expect(out.total_headings).toBe(305)
+    expect(out.returned).toBe(300)
+    expect(out.truncated).toBe(true)
+    expect(out.note).toBe('Outline truncated to 300 of 305 headings.')
+  })
+
   it('ST7 – surfaces a fetch error as a structured error', async () => {
     mockFetchDocument.mockRejectedValueOnce(new Error('Document not found: 32024R9999.'))
 

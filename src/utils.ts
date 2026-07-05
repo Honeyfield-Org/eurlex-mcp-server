@@ -208,7 +208,9 @@ const HEADING_RULES: HeadingRule[] = [
   },
   {
     level: 4,
-    re: new RegExp(`^([${HWS}]*)(Article|article|Artikel)[${HWS}]+(\\d+[a-z]?)[${HWS}]*$`),
+    re: new RegExp(
+      `^([${HWS}]*)(ARTICLE|Article|article|ARTIKEL|Artikel)[${HWS}]+(\\d+[a-z]?)[${HWS}]*$`,
+    ),
   },
   {
     level: 1,
