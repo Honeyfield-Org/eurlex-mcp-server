@@ -167,8 +167,8 @@ export interface TranspositionResult {
   returned: number;
   /**
    * Full number of matching measures; when > returned, `results` was truncated
-   * to limit. Best-effort: if the separate COUNT query fails, this falls back to
-   * `returned` (so it never over-reports what was actually retrieved).
+   * to limit. Best-effort count: equals `returned` when the COUNT query fails
+   * (so it never over-reports what was actually retrieved).
    */
   total_found: number;
 }
@@ -261,8 +261,8 @@ export interface StructureResult {
   outline: OutlineEntry[];
   source_url: string;
   /**
-   * Present only when no headings were detected (explains why and what to try)
-   * or when the outline was truncated to the returned-list cap.
+   * Present when no headings were detected (explains why and suggests alternatives)
+   * or when the outline was capped below total_headings (truncation reason).
    */
   note?: string;
 }

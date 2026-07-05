@@ -43,11 +43,12 @@ export function stripHtml(content: string): string {
  * appear more than once), then slices to `limit`.
  *
  * Shared by CellarClient.sparqlQuery() and CellarClient.caseLawQuery(): both
- * build their SPARQL query WITHOUT `ORDER BY` and oversample the SPARQL
- * `LIMIT` (see buildSparqlQuery / buildCaseLawQuery for why — `ORDER BY
- * DESC(?date)` forces Virtuoso to materialize the full result set before
- * applying LIMIT, which times out for broad queries), so this client-side
- * pipeline does the sort/dedup/slice instead.
+ * oversample the SPARQL `LIMIT` to allow this client-side dedup. sparqlQuery
+ * avoids `ORDER BY` entirely; caseLawQuery adds it only for anchored queries
+ * (see buildSparqlQuery / buildCaseLawQuery for why — `ORDER BY DESC(?date)`
+ * forces Virtuoso to materialize the full result set before applying LIMIT,
+ * which times out for broad queries). The client-side sort is still needed to
+ * handle dedup correctly across the oversampled result set.
  *
  * ISO date strings sort lexicographically = chronologically. Array.sort is
  * stable, so equal-date rows (including same-CELEX duplicates) keep their
