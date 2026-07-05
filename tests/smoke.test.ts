@@ -47,16 +47,16 @@ describe('Phase 5 – Smoke Tests', () => {
     expect(Array.isArray(tools)).toBe(true)
   })
 
-  // V18 + V-NEW-7: server exposes exactly 7 tools (count + names)
-  it('V18 – server exposes exactly 7 tools with correct names', async () => {
+  // V18 + V-NEW-7: server exposes exactly 8 tools (count + names)
+  it('V18 – server exposes exactly 8 tools with correct names', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
     const { tools } = await pair.client.listTools()
-    expect(tools).toHaveLength(7)
+    expect(tools).toHaveLength(8)
 
     const toolNames = tools.map((t) => t.name).sort()
-    expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
+    expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_transposition'])
   })
 
   // V20: Session-Management → factory creates independent servers per call
@@ -69,8 +69,8 @@ describe('Phase 5 – Smoke Tests', () => {
     const { tools: tools1 } = await pair1.client.listTools()
     const { tools: tools2 } = await pair2.client.listTools()
 
-    expect(tools1.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
-    expect(tools2.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
+    expect(tools1.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_transposition'])
+    expect(tools2.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_transposition'])
 
     // They should be distinct object instances
     expect(pair1.server).not.toBe(pair2.server)
@@ -194,6 +194,23 @@ describe('Phase 5 – Smoke Tests', () => {
     expect(caseLaw?.annotations?.openWorldHint).toBe(true)
     expect(caseLaw?.description).toContain('ECLI')
     expect(caseLaw?.description).toContain('eurlex_search')
+  })
+
+  it('eurlex_transposition has title, full annotation set, and a self-contained description', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    const transposition = tools.find((t) => t.name === 'eurlex_transposition')
+
+    expect(transposition?.annotations).toBeDefined()
+    expect(transposition?.annotations?.title).toBe('Find national transposition measures')
+    expect(transposition?.annotations?.readOnlyHint).toBe(true)
+    expect(transposition?.annotations?.destructiveHint).toBe(false)
+    expect(transposition?.annotations?.idempotentHint).toBe(true)
+    expect(transposition?.annotations?.openWorldHint).toBe(true)
+    expect(transposition?.description).toContain('directive')
+    expect(transposition?.description).toContain('NIM')
   })
 
   // V22: eurlex_guide Prompt abrufbar → server has eurlex_guide prompt registered

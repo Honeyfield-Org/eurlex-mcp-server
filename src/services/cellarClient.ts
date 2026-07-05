@@ -14,6 +14,7 @@ import {
   METADATA_CACHE_TTL_MS,
   METADATA_CACHE_MAX_ENTRIES,
 } from '../constants.js';
+import { MS_ALPHA2_TO_ALPHA3, MS_ALPHA3_TO_ALPHA2 } from '../countries.js';
 import { LANGUAGE_ISO_MAP } from '../languages.js';
 import type {
   SparqlQueryParams,
@@ -24,6 +25,9 @@ import type {
   CaseLawQueryParams,
   CaseLawEntry,
   CaseLawResult,
+  TranspositionQueryParams,
+  TranspositionEntry,
+  TranspositionResult,
 } from '../types.js';
 import { sortDedupSlice } from '../utils.js';
 
@@ -112,6 +116,23 @@ interface CaseLawSparqlResponse {
       resType: SparqlBindingValue;
     }[];
   };
+}
+
+/** Shape of the transposition (NIM) SPARQL JSON results */
+interface TranspositionSparqlResponse {
+  results: {
+    bindings: {
+      celex: SparqlBindingValue;
+      cc: SparqlBindingValue;
+      title?: SparqlBindingValue;
+      date?: SparqlBindingValue;
+    }[];
+  };
+}
+
+/** Shape of a `SELECT (COUNT(...) AS ?n)` SPARQL JSON result */
+interface CountSparqlResponse {
+  results: { bindings: { n?: SparqlBindingValue }[] };
 }
 
 /** Shape of the SPARQL JSON results */
@@ -874,6 +895,131 @@ export class CellarClient {
 
     const limited = sortDedupSlice(entries, params.limit);
     return { results: limited, total: limited.length };
+  }
+
+  /**
+   * Builds the shared WHERE block for the transposition (NIM) queries.
+   *
+   * Probed 2026-07-05 (NIS2 32022L2555, Data Protection Dir 31995L0046): a
+   * national implementing measure links to the directive it transposes via
+   * `cdm:measure_national_implementing_implements_resource_legal`. A single NIM
+   * *work* can transpose several directives and then carries ONE CELEX per
+   * directive (`72022L2555DEU_...`), so anchoring on the implements-relation
+   * alone (then reading an arbitrary CELEX) would report the wrong reference.
+   * We therefore also constrain `?celex` to this directive's NIM prefix
+   * (`7` + the directive body, i.e. the sector-3 CELEX minus its leading sector
+   * digit) so each row's CELEX is the one for THIS directive. Both anchors
+   * agreed on 285 measures for NIS2 in probing. The country comes from
+   * `cdm:measure_national_implementing_implemented_by_country` (an
+   * alpha-3 country-authority URI); the title from `cdm:work_title`, which for
+   * a NIM exists only in the member state's own language (no `expression_title`).
+   */
+  private transpositionWhereLines(params: TranspositionQueryParams): string[] {
+    const escapedCelex = escapeSparqlString(params.celex_id);
+    // NIM CELEX = 7 + <sector-3 body> + <alpha-3 country> + "_" + <number>.
+    // Strip the single leading sector digit to get the body; prefix with 7.
+    const nimPrefix = `7${params.celex_id.slice(1)}`;
+
+    const lines = [
+      '    ?dir cdm:resource_legal_id_celex ?dirCelex .',
+      `    FILTER(STR(?dirCelex) = "${escapedCelex}")`,
+      '    ?nim cdm:measure_national_implementing_implements_resource_legal ?dir .',
+      '    ?nim cdm:resource_legal_id_celex ?celex .',
+      `    FILTER(STRSTARTS(STR(?celex), "${escapeSparqlString(nimPrefix)}"))`,
+      '    ?nim cdm:measure_national_implementing_implemented_by_country ?country .',
+    ];
+
+    if (params.country) {
+      // params.country is a validated COUNTRY_ENUM value, so alpha3 is always
+      // defined; guard for any internal (non-schema) caller.
+      const alpha3 = MS_ALPHA2_TO_ALPHA3[params.country];
+      if (!alpha3) {
+        throw new Error(`Unknown member-state code: ${params.country}`);
+      }
+      lines.push(
+        `    FILTER(?country = <http://publications.europa.eu/resource/authority/country/${alpha3}>)`,
+      );
+    }
+
+    lines.push(
+      '    BIND(REPLACE(STR(?country), "^.*/", "") AS ?cc)',
+      '    OPTIONAL { ?nim cdm:work_title ?title . }',
+      '    OPTIONAL { ?nim cdm:work_date_document ?date . }',
+    );
+
+    return lines;
+  }
+
+  /**
+   * Builds the SPARQL SELECT returning a directive's national implementing
+   * measures. The result set is anchored to one directive (bounded, indexed via
+   * the implements-relation), so `ORDER BY DESC(?date)` is safe here — unlike
+   * the broad title scans in buildSparqlQuery/buildCaseLawQuery.
+   */
+  buildTranspositionQuery(params: TranspositionQueryParams): string {
+    return [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      '',
+      'SELECT DISTINCT ?celex ?cc ?title ?date WHERE {',
+      ...this.transpositionWhereLines(params),
+      '}',
+      'ORDER BY DESC(?date)',
+      `LIMIT ${params.limit}`,
+    ].join('\n');
+  }
+
+  /** Builds the COUNT query (full match total, ignoring limit) for total_found. */
+  private buildTranspositionCountQuery(params: TranspositionQueryParams): string {
+    return [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      '',
+      'SELECT (COUNT(DISTINCT ?celex) AS ?n) WHERE {',
+      ...this.transpositionWhereLines(params),
+      '}',
+    ].join('\n');
+  }
+
+  /**
+   * Fetches the national implementing measures (NIMs) transposing an EU
+   * directive. Runs the page query and the total-count query in parallel; the
+   * count drives `total_found` so the caller can tell when `results` (capped at
+   * `limit`) is a truncated view. Country codes returned by SPARQL are alpha-3
+   * authority suffixes, mapped back to friendly 2-letter codes for output
+   * (falling back to the raw alpha-3 for non-member-state codes such as "GBR"
+   * on pre-Brexit directives).
+   */
+  async transpositionQuery(params: TranspositionQueryParams): Promise<TranspositionResult> {
+    const [data, countData] = await Promise.all([
+      this.executeSparql<TranspositionSparqlResponse>(this.buildTranspositionQuery(params)),
+      this.executeSparql<CountSparqlResponse>(this.buildTranspositionCountQuery(params)),
+    ]);
+
+    const httpLang = LANGUAGE_ISO_MAP[params.language] ?? DEFAULT_ISO;
+
+    const entries: TranspositionEntry[] = data.results.bindings.map((b) => {
+      const alpha3 = b.cc.value;
+      return {
+        country: MS_ALPHA3_TO_ALPHA2[alpha3] ?? alpha3,
+        title: b.title?.value ?? '',
+        date: b.date?.value ?? '',
+        celex: b.celex.value,
+        eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${b.celex.value}`,
+      };
+    });
+
+    // Defensive dedup/sort (shared with the search/case-law pipeline): a NIM has
+    // at most one work_title (verified), so this is normally a no-op, but it
+    // guarantees one row per CELEX and a stable date-desc order.
+    const results = sortDedupSlice(entries, params.limit);
+
+    const total_found = Number(countData.results.bindings[0]?.n?.value ?? results.length);
+
+    return {
+      celex_id: params.celex_id,
+      results,
+      returned: results.length,
+      total_found,
+    };
   }
 
   /**

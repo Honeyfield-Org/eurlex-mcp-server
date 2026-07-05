@@ -236,4 +236,48 @@ describe('Phase 5 – Live Validation', () => {
     expect(result.total).toBeGreaterThanOrEqual(1)
     expect(result.results.map((r) => r.celex)).toContain('62018CJ0311')
   }, TIMEOUT)
+
+  // TR-LIVE-1 (Task 4): NIS2 (32022L2555) national implementing measures without a
+  // country filter. Exercises the implements-relation + sector-7 CELEX prefix
+  // anchor and the total_found COUNT. Probed 2026-07-05: ~285 measures across MS.
+  it('TR-LIVE-1: transpositionQuery for NIS2 (32022L2555) returns NIMs across member states', async () => {
+    const result = await client.transpositionQuery({
+      celex_id: '32022L2555',
+      language: 'ENG',
+      limit: 20,
+    })
+
+    expect(result.celex_id).toBe('32022L2555')
+    expect(result.returned).toBeGreaterThanOrEqual(1)
+    expect(result.returned).toBeLessThanOrEqual(20)
+    // The full transposition set is large, so total_found must exceed the page.
+    expect(result.total_found).toBeGreaterThan(result.returned)
+
+    const first = result.results[0]
+    expect(first).toHaveProperty('country')
+    expect(first).toHaveProperty('title')
+    expect(first.celex).toMatch(/^72022L2555[A-Z]{3}_/) // sector-7 NIM CELEX for NIS2
+    expect(first.eurlex_url).toContain(`CELEX:${first.celex}`)
+    // More than one member state should appear across the page.
+    expect(new Set(result.results.map((r) => r.country)).size).toBeGreaterThanOrEqual(2)
+  }, TIMEOUT)
+
+  // TR-LIVE-2 (Task 4): country-filtered — Austria's (AT→AUT) NIS2 measures. Every
+  // returned CELEX must encode AUT, and total_found must not exceed the unfiltered
+  // total. Titles come back in German (the member state's own language).
+  it('TR-LIVE-2: transpositionQuery for NIS2 filtered to Austria (AT) returns only AT measures', async () => {
+    const result = await client.transpositionQuery({
+      celex_id: '32022L2555',
+      country: 'AT',
+      language: 'ENG',
+      limit: 50,
+    })
+
+    expect(result.returned).toBeGreaterThanOrEqual(1)
+    for (const r of result.results) {
+      expect(r.country).toBe('AT')
+      expect(r.celex).toMatch(/^72022L2555AUT_/)
+    }
+    expect(result.total_found).toBe(result.returned)
+  }, TIMEOUT)
 })

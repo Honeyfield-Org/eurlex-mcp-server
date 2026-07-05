@@ -8,6 +8,7 @@ import { registerEurovocTool } from './tools/eurovoc.js';
 import { registerFetchTool } from './tools/fetch.js';
 import { registerMetadataTool } from './tools/metadata.js';
 import { registerSearchTool } from './tools/search.js';
+import { registerTranspositionTool } from './tools/transposition.js';
 import { VERSION } from './version.js';
 
 export function createServer(): McpServer {
@@ -23,6 +24,7 @@ export function createServer(): McpServer {
   registerEurovocTool(server);
   registerConsolidatedTool(server);
   registerCaseLawTool(server);
+  registerTranspositionTool(server);
   registerGuidePrompt(server);
 
   return server;

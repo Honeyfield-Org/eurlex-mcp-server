@@ -42,6 +42,10 @@ vi.mock('../src/tools/caseLaw.js', () => ({
   registerCaseLawTool: vi.fn(),
 }))
 
+vi.mock('../src/tools/transposition.js', () => ({
+  registerTranspositionTool: vi.fn(),
+}))
+
 vi.mock('../src/prompts/guide.js', () => ({
   registerGuidePrompt: vi.fn(),
 }))
@@ -136,5 +140,14 @@ describe('createServer()', () => {
     createServer()
 
     expect(registerCaseLawTool).toHaveBeenCalledOnce()
+  })
+
+  it('S10 – createServer calls registerTranspositionTool', async () => {
+    const { registerTranspositionTool } = await import('../src/tools/transposition.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerTranspositionTool).toHaveBeenCalledOnce()
   })
 })

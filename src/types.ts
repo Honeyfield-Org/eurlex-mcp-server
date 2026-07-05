@@ -122,6 +122,38 @@ export interface CaseLawResult {
   total: number;
 }
 
+export interface TranspositionQueryParams {
+  /** Sector-3 CELEX of the EU directive whose national implementing measures are wanted. */
+  celex_id: string;
+  /** Optional 2-letter member-state code (validated COUNTRY_ENUM) to filter by. */
+  country?: string;
+  /** Language code; sets the eurlex_url locale (does NOT translate NIM titles). */
+  language: string;
+  limit: number;
+}
+
+export interface TranspositionEntry {
+  /** Member state: 2-letter code when known, else the raw alpha-3 authority code (e.g. "GBR"). */
+  country: string;
+  /** National measure title, in the member state's own language (or '' when absent). */
+  title: string;
+  /** ISO date of the national measure's document, or '' when absent. */
+  date: string;
+  /** Sector-7 NIM CELEX, e.g. "72022L2555DEU_202500123". */
+  celex: string;
+  eurlex_url: string;
+}
+
+export interface TranspositionResult {
+  /** The directive CELEX that was queried. */
+  celex_id: string;
+  results: TranspositionEntry[];
+  /** Number of measures in `results` (<= limit). */
+  returned: number;
+  /** Full number of matching measures; when > returned, `results` was truncated to limit. */
+  total_found: number;
+}
+
 export interface ConsolidatedResult {
   doc_type: string;
   year: number;
