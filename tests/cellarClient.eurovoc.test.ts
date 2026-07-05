@@ -103,30 +103,125 @@ describe('resolveEurovocLabel()', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 
-  it('returns null when no concept matches the label', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ results: { bindings: [] } }),
-    })
+  it('returns null when no concept matches the label (in either the request language or the cross-language fallback)', async () => {
+    // Attempt 1 (request language) and attempt 2 (fallback, no LANG filter) both empty.
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
 
     const client = new CellarClient()
     const uri = await client.resolveEurovocLabel('xyznonexistent123', 'DEU')
 
     expect(uri).toBeNull()
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 
-  it('escapes special characters in the label', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ results: { bindings: [] } }),
-    })
+  it('escapes special characters in the label (in both the request-language and fallback query)', async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
 
     const client = new CellarClient()
     await client.resolveEurovocLabel('data "protection', 'DEU')
 
-    const sparqlSent = mockFetch.mock.calls[0][1].body as string
-    expect(sparqlSent).toContain('data \\"protection')
-    expect(sparqlSent).not.toContain('data "protection')
+    const firstQuery = mockFetch.mock.calls[0][1].body as string
+    const secondQuery = mockFetch.mock.calls[1][1].body as string
+    expect(firstQuery).toContain('data \\"protection')
+    expect(firstQuery).not.toContain('data "protection')
+    expect(secondQuery).toContain('data \\"protection')
+    expect(secondQuery).not.toContain('data "protection')
+  })
+})
+
+// ===========================================================================
+// resolveEurovocLabel() cross-language fallback (Task 7b)
+//
+// Live-smoke finding: concept="data protection" with the DEU default returned
+// a silent 0 because the request-language-only query only matches German
+// labels. EuroVoc concept URIs are language-independent, so a label match in
+// ANY official language resolves the exact same concept — the fallback below
+// removes the false "concept doesn't exist" impression for a plain language
+// mismatch.
+// ===========================================================================
+describe('resolveEurovocLabel() cross-language fallback', () => {
+  it('falls back to a language-unfiltered query when the request language has no match, and returns that hit', async () => {
+    // Attempt 1: request language (DEU / "de"), no match.
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
+    // Attempt 2: fallback, no LANG filter — finds the English label.
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        results: { bindings: [{ concept: { type: 'uri', value: 'http://eurovoc.europa.eu/4038' } }] },
+      }),
+    })
+
+    const client = new CellarClient()
+    const uri = await client.resolveEurovocLabel('data protection', 'DEU')
+
+    expect(uri).toBe('http://eurovoc.europa.eu/4038')
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+
+    const firstQuery = mockFetch.mock.calls[0][1].body as string
+    const secondQuery = mockFetch.mock.calls[1][1].body as string
+
+    // Attempt 1 is unchanged: filtered to the request language.
+    expect(firstQuery).toContain('FILTER(LANG(?label) = "de")')
+
+    // Attempt 2 (fallback) must NOT filter by language at all...
+    expect(secondQuery).not.toContain('FILTER(LANG(')
+    // ...but must keep the EuroVoc namespace filter, the label match, and the
+    // same exact-match-preferred ORDER BY as attempt 1.
+    expect(secondQuery).toContain('STRSTARTS(STR(?concept), "http://eurovoc.europa.eu/")')
+    expect(secondQuery).toContain('CONTAINS(LCASE(STR(?label)), LCASE("data protection"))')
+    expect(secondQuery).toContain('ORDER BY DESC(LCASE(STR(?label)) = LCASE("data protection")) STRLEN(STR(?label))')
+  })
+
+  it('does not fall back when the request-language query already finds a match (only 1 fetch call)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        results: { bindings: [{ concept: { type: 'uri', value: 'http://eurovoc.europa.eu/4038' } }] },
+      }),
+    })
+
+    const client = new CellarClient()
+    const uri = await client.resolveEurovocLabel('Datenschutz', 'DEU')
+
+    expect(uri).toBe('http://eurovoc.europa.eu/4038')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('caches the fallback result under the plain label|language key: a repeat call does not re-fetch', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        results: { bindings: [{ concept: { type: 'uri', value: 'http://eurovoc.europa.eu/4038' } }] },
+      }),
+    })
+
+    const client = new CellarClient()
+    const first = await client.resolveEurovocLabel('data protection', 'DEU')
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+
+    const second = await client.resolveEurovocLabel('data protection', 'DEU')
+
+    expect(first).toBe('http://eurovoc.europa.eu/4038')
+    expect(second).toBe('http://eurovoc.europa.eu/4038')
+    // No 3rd fetch call: the fallback outcome was cached (not just attempt 1's null).
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('propagates an error from the fallback attempt instead of swallowing it (no catch-all)', async () => {
+    // Attempt 1 succeeds with a legitimate empty result...
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
+    // ...attempt 2 (fallback) fails on every retry.
+    mockFetch.mockRejectedValue(new TypeError('fetch failed'))
+
+    const client = new CellarClient({ retryDelayFn: async () => {} })
+    await expect(client.resolveEurovocLabel('something', 'DEU')).rejects.toThrow('fetch failed')
+    // 1 (attempt 1) + 1 initial + 2 retries (attempt 2) = 4 calls total.
+    expect(mockFetch).toHaveBeenCalledTimes(4)
   })
 })
 
@@ -197,19 +292,18 @@ describe('eurovocQuery()', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('E8 – returns empty array when label resolves to no concept (non-existent label)', async () => {
-    // Label resolution returns no results
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ results: { bindings: [] } }),
-    })
+  it('E8 – returns empty array when label resolves to no concept in either the request language or the fallback (non-existent label)', async () => {
+    // Label resolution: attempt 1 (request language) and attempt 2 (fallback) both empty.
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ results: { bindings: [] } }) })
 
     const client = new CellarClient()
     const results = await client.eurovocQuery('xyznonexistent123', 'any', 'DEU', 10)
 
     expect(results).toEqual([])
-    // Should have made only 1 fetch call (label resolution), no document query
-    expect(mockFetch).toHaveBeenCalledTimes(1)
+    // Should have made only 2 fetch calls (both label-resolution attempts), no document query
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -268,7 +362,8 @@ describe('resolveEurovocLabel() caching', () => {
   })
 
   it('CACHE-E3 – caches a legitimate `null` ("not found") result: second call does not hit fetch', async () => {
-    mockFetch.mockResolvedValueOnce(mockEmptyResponse())
+    // Both the request-language attempt and the cross-language fallback come up empty.
+    mockFetch.mockResolvedValueOnce(mockEmptyResponse()).mockResolvedValueOnce(mockEmptyResponse())
 
     const client = new CellarClient()
     const first = await client.resolveEurovocLabel('xyznonexistent', 'DEU')
@@ -276,7 +371,8 @@ describe('resolveEurovocLabel() caching', () => {
 
     expect(first).toBeNull()
     expect(second).toBeNull()
-    expect(mockFetch).toHaveBeenCalledTimes(1)
+    // 2 calls for the first (request-language + fallback) attempt, 0 more for the cached repeat.
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 
   it('CACHE-E4 – does NOT cache an error: the second call retries against fetch', async () => {

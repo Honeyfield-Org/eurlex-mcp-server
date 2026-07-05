@@ -14,7 +14,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { createServer } from '../../src/server.js'
 import { CellarClient, escapeSparqlString } from '../../src/services/cellarClient.js'
-import { SPARQL_ENDPOINT, CELLAR_REST_BASE } from '../../src/constants.js'
+import { SPARQL_ENDPOINT } from '../../src/constants.js'
 
 // ---------------------------------------------------------------------------
 // Helper: spin up a server + client pair over in-memory transport
@@ -118,6 +118,7 @@ describe('Phase 5 Eval – Validation Matrix', () => {
         language: 'DEU',
         format: 'xhtml',
         max_chars: 20_000,
+        offset: 0,
       })
 
       const parsed = JSON.parse(result.content[0].text)
@@ -133,6 +134,7 @@ describe('Phase 5 Eval – Validation Matrix', () => {
         language: 'DEU',
         format: 'xhtml',
         max_chars: 20_000,
+        offset: 0,
       })
 
       expect(result.isError).toBe(true)
@@ -250,6 +252,7 @@ describe('Phase 5 Eval – Validation Matrix', () => {
         language: 'DEU',
         format: 'plain',
         max_chars: 20_000,
+        offset: 0,
       })
 
       const parsed = JSON.parse(result.content[0].text)
@@ -312,7 +315,7 @@ describe('Phase 5 Eval – Validation Matrix', () => {
       const { tools } = await pair.client.listTools()
       const toolNames = tools.map((t) => t.name).sort()
 
-      expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
+      expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_sparql', 'eurlex_structure', 'eurlex_summary', 'eurlex_transposition'])
     })
 
     it('V20: two createServer calls return different instances', async () => {
@@ -326,8 +329,8 @@ describe('Phase 5 Eval – Validation Matrix', () => {
       const { tools: tools1 } = await pair1.client.listTools()
       const { tools: tools2 } = await pair2.client.listTools()
 
-      expect(tools1.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
-      expect(tools2.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
+      expect(tools1.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_sparql', 'eurlex_structure', 'eurlex_summary', 'eurlex_transposition'])
+      expect(tools2.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_sparql', 'eurlex_structure', 'eurlex_summary', 'eurlex_transposition'])
     })
 
     it('V22: listPrompts returns eurlex_guide', async () => {

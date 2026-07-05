@@ -1,9 +1,13 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { consolidatedInputSchema, consolidatedSchema } from '../schemas/consolidatedSchema.js';
+import {
+  consolidatedInputSchema,
+  consolidatedSchema,
+  consolidatedOutputSchema,
+} from '../schemas/consolidatedSchema.js';
 import { sharedCellarClient } from '../services/cellarClient.js';
-import type { ConsolidatedResult } from '../types.js';
-import { processContent, toolError } from '../utils.js';
+import type { ConsolidatedResult, ToolResult } from '../types.js';
+import { processContent, toCallToolResult, toolError } from '../utils.js';
 
 /**
  * Parses the "-YYYYMMDD" consolidation-date suffix off a consolidated CELEX
@@ -51,7 +55,7 @@ export async function handleEurlexConsolidated(input: {
   format: 'plain' | 'xhtml';
   max_chars: number;
   offset: number;
-}): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
+}): Promise<ToolResult<ConsolidatedResult>> {
   try {
     // `server.tool(consolidatedSchema.shape)` only registers the per-field
     // shape with the SDK — the celex_id XOR doc_type+year+number invariant is
@@ -104,12 +108,8 @@ export async function handleEurlexConsolidated(input: {
     };
 
     return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(result),
-        },
-      ],
+      content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+      structuredContent: result,
     };
   } catch (error) {
     return toolError(error);
@@ -117,17 +117,21 @@ export async function handleEurlexConsolidated(input: {
 }
 
 export function registerConsolidatedTool(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'eurlex_consolidated',
-    'Fetches the latest consolidated (currently in-force) version of an EU legal act via ELI, with all amendments merged in. Identify the act with celex_id (e.g. "32016R0679") OR with doc_type + year + number — provide exactly one of the two. celex_id must be a sector-3 secondary-law CELEX (3YYYY[R|L|D]NNNN).',
-    consolidatedSchema.shape,
     {
-      title: 'Get consolidated EU legal act',
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
+      description:
+        'Fetches the latest consolidated (currently in-force) version of an EU legal act via ELI, with all amendments merged in. Identify the act with celex_id (e.g. "32016R0679") OR with doc_type + year + number — provide exactly one of the two. celex_id must be a sector-3 secondary-law CELEX (3YYYY[R|L|D]NNNN).',
+      inputSchema: consolidatedSchema.shape,
+      outputSchema: consolidatedOutputSchema.shape,
+      annotations: {
+        title: 'Get consolidated EU legal act',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
-    async (params) => handleEurlexConsolidated(params),
+    async (params) => toCallToolResult(await handleEurlexConsolidated(params)),
   );
 }

@@ -7,7 +7,9 @@ vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
   McpServer: vi.fn().mockImplementation(() => ({
     connect: vi.fn(),
     tool: vi.fn(),
+    registerTool: vi.fn(),
     prompt: vi.fn(),
+    registerPrompt: vi.fn(),
   })),
 }))
 
@@ -36,6 +38,26 @@ vi.mock('../src/tools/eurovoc.js', () => ({
 
 vi.mock('../src/tools/consolidated.js', () => ({
   registerConsolidatedTool: vi.fn(),
+}))
+
+vi.mock('../src/tools/caseLaw.js', () => ({
+  registerCaseLawTool: vi.fn(),
+}))
+
+vi.mock('../src/tools/transposition.js', () => ({
+  registerTranspositionTool: vi.fn(),
+}))
+
+vi.mock('../src/tools/structure.js', () => ({
+  registerStructureTool: vi.fn(),
+}))
+
+vi.mock('../src/tools/summary.js', () => ({
+  registerSummaryTool: vi.fn(),
+}))
+
+vi.mock('../src/tools/sparql.js', () => ({
+  registerSparqlTool: vi.fn(),
 }))
 
 vi.mock('../src/prompts/guide.js', () => ({
@@ -123,5 +145,50 @@ describe('createServer()', () => {
     createServer()
 
     expect(registerConsolidatedTool).toHaveBeenCalledOnce()
+  })
+
+  it('S9 – createServer calls registerCaseLawTool', async () => {
+    const { registerCaseLawTool } = await import('../src/tools/caseLaw.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerCaseLawTool).toHaveBeenCalledOnce()
+  })
+
+  it('S10 – createServer calls registerTranspositionTool', async () => {
+    const { registerTranspositionTool } = await import('../src/tools/transposition.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerTranspositionTool).toHaveBeenCalledOnce()
+  })
+
+  it('S11 – createServer calls registerStructureTool', async () => {
+    const { registerStructureTool } = await import('../src/tools/structure.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerStructureTool).toHaveBeenCalledOnce()
+  })
+
+  it('S12 – createServer calls registerSummaryTool', async () => {
+    const { registerSummaryTool } = await import('../src/tools/summary.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerSummaryTool).toHaveBeenCalledOnce()
+  })
+
+  it('S13 – createServer calls registerSparqlTool', async () => {
+    const { registerSparqlTool } = await import('../src/tools/sparql.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerSparqlTool).toHaveBeenCalledOnce()
   })
 })

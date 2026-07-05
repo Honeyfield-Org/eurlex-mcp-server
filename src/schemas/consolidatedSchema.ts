@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { CELEX_REGEX } from '../constants.js';
+import { LANGUAGE_ENUM } from '../languages.js';
 
 export const consolidatedSchema = z
   .object({
@@ -34,10 +35,9 @@ export const consolidatedSchema = z
       .describe(
         'Document number, e.g. 1689. Required together with doc_type and year when celex_id is not used.',
       ),
-    language: z
-      .enum(['DEU', 'ENG', 'FRA'])
-      .default('DEU')
-      .describe('Language of the returned text'),
+    language: LANGUAGE_ENUM.default('DEU').describe(
+      'Language of the returned text, as a Cellar 3-letter code (any of the 24 official EU languages, e.g. DEU, ENG, FRA, POL, SPA)',
+    ),
     format: z
       .enum(['xhtml', 'plain'])
       .default('xhtml')
@@ -98,4 +98,30 @@ export const consolidatedInputSchema = consolidatedSchema.superRefine((data, ctx
       message: 'doc_type, year, and number must all be provided together.',
     });
   }
+});
+
+/** Output of eurlex_consolidated: the merged in-force text plus pagination/ELI info. */
+export const consolidatedOutputSchema = z.object({
+  doc_type: z.string(),
+  year: z.number().int(),
+  number: z.number().int(),
+  language: z.string(),
+  content: z.string().describe('The consolidated text in the requested window/format'),
+  truncated: z.boolean().describe('True when more text remains beyond this window'),
+  returned_chars: z.number().int().describe('Length of `content`'),
+  total_chars: z.number().int().describe('Length of the full processed document'),
+  offset: z.number().int().describe('The offset this window was sliced from'),
+  next_offset: z
+    .number()
+    .int()
+    .nullable()
+    .describe('Offset to request next, or null when there is no more content'),
+  eli_url: z.string().describe('ELI URL of the consolidated act'),
+  consolidated_celex: z
+    .string()
+    .describe('Resolved consolidated CELEX, e.g. "02016R0679-20160504"'),
+  consolidation_date: z
+    .string()
+    .nullable()
+    .describe('ISO date from the CELEX "-YYYYMMDD" suffix, or null when absent'),
 });

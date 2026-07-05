@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check (typecheck + lint + format + test)
+      - name: Check (typecheck + typecheck:tests + lint + format + test)
         run: pnpm run check
 
       - name: Generate coverage report

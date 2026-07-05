@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SPARQL_ENDPOINT, CELLAR_REST_BASE } from '../src/constants.js'
+import { SPARQL_ENDPOINT } from '../src/constants.js'
 import { CellarClient, escapeSparqlString } from '../src/services/cellarClient.js'
 
 // ---------------------------------------------------------------------------
@@ -513,8 +513,8 @@ describe('sparqlQuery() – deduplication', () => {
 // ===========================================================================
 // buildSparqlQuery language fallback
 // ===========================================================================
-describe('buildSparqlQuery() – language fallback', () => {
-  it('uses language code directly when not in LANGUAGE_URI_MAP', () => {
+describe('buildSparqlQuery() – language URI suffix', () => {
+  it('uses the 3-letter language code directly as the authority URI suffix', () => {
     const client = new CellarClient()
     const query = client.buildSparqlQuery({
       query: 'test',

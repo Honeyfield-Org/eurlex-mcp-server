@@ -47,16 +47,30 @@ describe('Phase 5 – Smoke Tests', () => {
     expect(Array.isArray(tools)).toBe(true)
   })
 
-  // V18 + V-NEW-7: server exposes exactly 6 tools (count + names)
-  it('V18 – server exposes exactly 6 tools with correct names', async () => {
+  // V18 + V-NEW-7: server exposes exactly 11 tools (count + names)
+  it('V18 – server exposes exactly 11 tools with correct names', async () => {
     const pair = await createTestPair()
     pairs.push(pair)
 
     const { tools } = await pair.client.listTools()
-    expect(tools).toHaveLength(6)
+    expect(tools).toHaveLength(11)
 
     const toolNames = tools.map((t) => t.name).sort()
-    expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
+    expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_sparql', 'eurlex_structure', 'eurlex_summary', 'eurlex_transposition'])
+  })
+
+  // Structured output: every tool advertises an outputSchema in tools/list, so
+  // clients know each result carries validatable structuredContent (Task 8).
+  it('V18b – every tool advertises an outputSchema in tools/list', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    expect(tools).toHaveLength(11)
+    for (const tool of tools) {
+      expect(tool.outputSchema, `${tool.name} has an outputSchema`).toBeDefined()
+      expect((tool.outputSchema as { type?: string }).type).toBe('object')
+    }
   })
 
   // V20: Session-Management → factory creates independent servers per call
@@ -69,8 +83,8 @@ describe('Phase 5 – Smoke Tests', () => {
     const { tools: tools1 } = await pair1.client.listTools()
     const { tools: tools2 } = await pair2.client.listTools()
 
-    expect(tools1.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
-    expect(tools2.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search'])
+    expect(tools1.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_sparql', 'eurlex_structure', 'eurlex_summary', 'eurlex_transposition'])
+    expect(tools2.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_sparql', 'eurlex_structure', 'eurlex_summary', 'eurlex_transposition'])
 
     // They should be distinct object instances
     expect(pair1.server).not.toBe(pair2.server)
@@ -177,6 +191,93 @@ describe('Phase 5 – Smoke Tests', () => {
     expect(consolidated?.annotations?.idempotentHint).toBe(true)
     expect(consolidated?.annotations?.openWorldHint).toBe(true)
     expect(consolidated?.description).toContain('celex_id')
+  })
+
+  it('eurlex_case_law has title, full annotation set, and a self-contained description', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    const caseLaw = tools.find((t) => t.name === 'eurlex_case_law')
+
+    expect(caseLaw?.annotations).toBeDefined()
+    expect(caseLaw?.annotations?.title).toBe('Find CJEU case law')
+    expect(caseLaw?.annotations?.readOnlyHint).toBe(true)
+    expect(caseLaw?.annotations?.destructiveHint).toBe(false)
+    expect(caseLaw?.annotations?.idempotentHint).toBe(true)
+    expect(caseLaw?.annotations?.openWorldHint).toBe(true)
+    expect(caseLaw?.description).toContain('ECLI')
+    expect(caseLaw?.description).toContain('eurlex_search')
+  })
+
+  it('eurlex_transposition has title, full annotation set, and a self-contained description', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    const transposition = tools.find((t) => t.name === 'eurlex_transposition')
+
+    expect(transposition?.annotations).toBeDefined()
+    expect(transposition?.annotations?.title).toBe('Find national transposition measures')
+    expect(transposition?.annotations?.readOnlyHint).toBe(true)
+    expect(transposition?.annotations?.destructiveHint).toBe(false)
+    expect(transposition?.annotations?.idempotentHint).toBe(true)
+    expect(transposition?.annotations?.openWorldHint).toBe(true)
+    expect(transposition?.description).toContain('directive')
+    expect(transposition?.description).toContain('NIM')
+  })
+
+  it('eurlex_structure has title, full annotation set, and a self-contained description', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    const structure = tools.find((t) => t.name === 'eurlex_structure')
+
+    expect(structure?.annotations).toBeDefined()
+    expect(structure?.annotations?.title).toBe('Outline an EU act and locate its articles')
+    expect(structure?.annotations?.readOnlyHint).toBe(true)
+    expect(structure?.annotations?.destructiveHint).toBe(false)
+    expect(structure?.annotations?.idempotentHint).toBe(true)
+    expect(structure?.annotations?.openWorldHint).toBe(true)
+    // Description explains the structure → offset → fetch workflow.
+    expect(structure?.description).toContain('offset')
+    expect(structure?.description).toContain('eurlex_fetch')
+  })
+
+  it('eurlex_summary has title, full annotation set, and a self-contained description', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    const summary = tools.find((t) => t.name === 'eurlex_summary')
+
+    expect(summary?.annotations).toBeDefined()
+    expect(summary?.annotations?.title).toBe('Get the plain-language summary of an EU act')
+    expect(summary?.annotations?.readOnlyHint).toBe(true)
+    expect(summary?.annotations?.destructiveHint).toBe(false)
+    expect(summary?.annotations?.idempotentHint).toBe(true)
+    expect(summary?.annotations?.openWorldHint).toBe(true)
+    expect(summary?.description).toContain('LEGISSUM')
+    expect(summary?.description).toContain('eurlex_fetch')
+  })
+
+  it('eurlex_sparql has title, full annotation set, and a self-contained description', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    const sparql = tools.find((t) => t.name === 'eurlex_sparql')
+
+    expect(sparql?.annotations).toBeDefined()
+    expect(sparql?.annotations?.title).toBe('Run a raw read-only SPARQL query')
+    expect(sparql?.annotations?.readOnlyHint).toBe(true)
+    expect(sparql?.annotations?.destructiveHint).toBe(false)
+    expect(sparql?.annotations?.idempotentHint).toBe(true)
+    expect(sparql?.annotations?.openWorldHint).toBe(true)
+    // Description names the escape-hatch nature and points at the guide.
+    expect(sparql?.description).toContain('SELECT')
+    expect(sparql?.description).toContain('eurlex_guide')
   })
 
   // V22: eurlex_guide Prompt abrufbar → server has eurlex_guide prompt registered

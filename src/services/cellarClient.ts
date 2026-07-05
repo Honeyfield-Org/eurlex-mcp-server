@@ -1,11 +1,13 @@
 import {
   SPARQL_ENDPOINT,
   CELLAR_REST_BASE,
+  CELLAR_SUMMARY_MIME,
   EURLEX_BASE,
   DEFAULT_LANGUAGE,
   DEFAULT_LIMIT,
   REQUEST_TIMEOUT_MS,
   MAX_RETRIES,
+  SUMMARY_LOOKUP_LIMIT,
   RETRY_DELAYS_MS,
   EUROVOC_LABEL_CACHE_TTL_MS,
   EUROVOC_LABEL_CACHE_MAX_ENTRIES,
@@ -14,29 +16,35 @@ import {
   METADATA_CACHE_TTL_MS,
   METADATA_CACHE_MAX_ENTRIES,
 } from '../constants.js';
+import { MS_ALPHA2_TO_ALPHA3, MS_ALPHA3_TO_ALPHA2 } from '../countries.js';
+import { LANGUAGE_ISO_MAP } from '../languages.js';
 import type {
   SparqlQueryParams,
   SearchResult,
   MetadataResult,
   CitationsResult,
   CitationEntry,
+  CaseLawQueryParams,
+  CaseLawEntry,
+  CaseLawResult,
+  TranspositionQueryParams,
+  TranspositionEntry,
+  TranspositionResult,
+  SummaryMeta,
 } from '../types.js';
+import { sortDedupSlice } from '../utils.js';
 
+import { normalizeEliToCanonicalUri, normalizeOjRefToResourceUri } from './identifiers.js';
 import { TtlCache } from './ttlCache.js';
 
-/** Maps 3-letter language codes to CDM expression language URI suffixes */
-const LANGUAGE_URI_MAP: Record<string, string> = {
-  DEU: 'DEU',
-  ENG: 'ENG',
-  FRA: 'FRA',
-};
-
-/** Maps 3-letter language codes to HTTP Accept-Language values */
-const LANGUAGE_HTTP_MAP: Record<string, string> = {
-  DEU: 'de',
-  ENG: 'en',
-  FRA: 'fr',
-};
+/**
+ * Fallback ISO 639-1 tag when a language code is unknown to LANGUAGE_ISO_MAP.
+ * In practice unreachable — the `language` field of every tool schema is
+ * Zod-validated against LANGUAGE_ENUM, whose codes are exactly the map keys.
+ * "de" keeps the pre-existing behaviour for any internal caller that passes a
+ * raw (non-schema) code.
+ */
+const DEFAULT_ISO = 'de';
 
 /** Valid citation relationship types between EU legal acts */
 export const VALID_RELATIONSHIPS = new Set<CitationEntry['relationship']>([
@@ -100,6 +108,49 @@ interface CitationsSparqlResponse {
   };
 }
 
+/** Shape of the case-law SPARQL JSON results */
+interface CaseLawSparqlResponse {
+  results: {
+    bindings: {
+      celex: SparqlBindingValue;
+      ecli?: SparqlBindingValue;
+      title: SparqlBindingValue;
+      date?: SparqlBindingValue;
+      resType: SparqlBindingValue;
+    }[];
+  };
+}
+
+/** Shape of the transposition (NIM) SPARQL JSON results */
+interface TranspositionSparqlResponse {
+  results: {
+    bindings: {
+      celex: SparqlBindingValue;
+      cc: SparqlBindingValue;
+      title?: SparqlBindingValue;
+      date?: SparqlBindingValue;
+    }[];
+  };
+}
+
+/** Shape of the LEGISSUM summary lookup SPARQL JSON results */
+interface SummarySparqlResponse {
+  results: {
+    bindings: {
+      summary: SparqlBindingValue;
+      legissumId?: SparqlBindingValue;
+      title?: SparqlBindingValue;
+      date?: SparqlBindingValue;
+      obsolete?: SparqlBindingValue;
+    }[];
+  };
+}
+
+/** Shape of a `SELECT (COUNT(...) AS ?n)` SPARQL JSON result */
+interface CountSparqlResponse {
+  results: { bindings: { n?: SparqlBindingValue }[] };
+}
+
 /** Shape of the SPARQL JSON results */
 interface SparqlResponse {
   results: {
@@ -125,6 +176,19 @@ export function escapeSparqlString(input: string): string {
     .replace(/\r/g, '\\r')
     .replace(/\t/g, '\\t')
     .replace(/\0/g, '');
+}
+
+/**
+ * Escapes regex metacharacters so a literal character sequence embedded in a
+ * SPARQL `REGEX(...)` pattern cannot be misinterpreted as regex syntax.
+ * Needed because CELEX_REGEX (src/constants.ts) allows parens in the body
+ * (e.g. a corrigendum suffix like "R(01)"), which are regex metacharacters.
+ * Run this BEFORE escapeSparqlString: this escapes for the regex engine,
+ * escapeSparqlString then escapes the resulting backslashes for the SPARQL
+ * string-literal syntax the pattern is embedded in.
+ */
+function escapeRegexMetachars(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -253,7 +317,9 @@ export class CellarClient {
    * Builds a SPARQL SELECT query from the given parameters.
    */
   buildSparqlQuery(params: SparqlQueryParams): string {
-    const lang = LANGUAGE_URI_MAP[params.language] ?? params.language;
+    // The Cellar 3-letter code IS the language-authority URI suffix
+    // (.../authority/language/POL etc.), so no mapping is needed here.
+    const lang = params.language;
     const escaped = escapeSparqlString(params.query);
 
     const whereLines: string[] = [];
@@ -351,34 +417,28 @@ export class CellarClient {
         title: binding.title.value,
         date: binding.date?.value ?? '',
         type: binding.resType.value,
-        eurlex_url: `${EURLEX_BASE}/${LANGUAGE_HTTP_MAP[lang] ?? 'de'}/TXT/?uri=CELEX:${celex}`,
+        eurlex_url: `${EURLEX_BASE}/${LANGUAGE_ISO_MAP[lang] ?? DEFAULT_ISO}/TXT/?uri=CELEX:${celex}`,
       };
     });
 
     // The SPARQL query has no ORDER BY (see buildSparqlQuery) and oversamples the
-    // LIMIT, so we sort here: date descending, with empty/missing dates last.
-    // ISO date strings sort lexicographically = chronologically. Array.sort is
-    // stable, so equal-date rows keep their original order.
-    const sorted = [...results].sort((a, b) => {
-      if (a.date === b.date) return 0;
-      if (a.date === '') return 1;
-      if (b.date === '') return -1;
-      return a.date < b.date ? 1 : -1;
-    });
-
-    // Deduplicate by CELEX ID (same document can have multiple resource types).
-    // After the date-desc sort, the first occurrence per CELEX is the newest.
-    const seen = new Set<string>();
-    const deduped = sorted.filter((r) => {
-      if (seen.has(r.celex)) return false;
-      seen.add(r.celex);
-      return true;
-    });
-
-    // Slice back down to the caller's requested limit (we oversampled for the sort).
-    const limited = deduped.slice(0, fullParams.limit);
+    // LIMIT, so we sort/dedup/slice client-side here (shared with caseLawQuery()).
+    const limited = sortDedupSlice(results, fullParams.limit);
 
     return { results: limited, sparql };
+  }
+
+  /**
+   * Executes an already-validated raw SPARQL query (the `eurlex_sparql` escape
+   * hatch) and returns the endpoint's SPARQL 1.1 JSON result verbatim. This is the
+   * ONLY path that runs caller-authored SPARQL, so the read-only guard and LIMIT
+   * policy (validateAndPrepareSparql in tools/sparql.ts) MUST run before it — this
+   * method deliberately does no validation, it only reuses executeSparql's transport
+   * (POST, timeout, retry-on-5xx, JSON parse). Typed `unknown` because the shape
+   * depends on the query (SELECT bindings vs. ASK boolean); the tool narrows it.
+   */
+  async executeRawSparql(query: string): Promise<unknown> {
+    return this.executeSparql<unknown>(query);
   }
 
   /**
@@ -392,7 +452,7 @@ export class CellarClient {
     language: string,
     context: { notFoundError: string; notAcceptableError: string },
   ): Promise<string> {
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
     const url = `${CELLAR_REST_BASE}/${celexId}`;
 
     return this.withRetry(async () => {
@@ -437,8 +497,9 @@ export class CellarClient {
    * Builds a SPARQL query to retrieve metadata for a given CELEX ID.
    */
   buildMetadataQuery(celexId: string, language: string): string {
-    const lang = LANGUAGE_URI_MAP[language] ?? language;
-    const langLower = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    // 3-letter code = language-authority URI suffix; ISO tag drives LANG() filters.
+    const lang = language;
+    const langLower = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
     const query = [
       'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
@@ -520,7 +581,7 @@ export class CellarClient {
     }
 
     const binding = data.results.bindings[0];
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
     const splitConcat = (value: string | undefined): string[] => {
       if (!value) return [];
@@ -573,7 +634,8 @@ export class CellarClient {
     direction: 'cites' | 'cited_by' | 'both',
     limit: number,
   ): string {
-    const lang = LANGUAGE_URI_MAP[language] ?? language;
+    // 3-letter code = language-authority URI suffix (no mapping needed).
+    const lang = language;
     const escaped = escapeSparqlString(celexId);
 
     // Use FILTER(STR(...)) for CELEX matching — literals may be typed as xsd:string
@@ -650,7 +712,7 @@ export class CellarClient {
     direction: 'cites' | 'cited_by',
     limit: number,
   ): Promise<CitationEntry[]> {
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
     const sparql = this.buildCitationsQuery(celexId, language, direction, limit);
     const data = await this.executeSparql<CitationsSparqlResponse>(sparql);
 
@@ -709,12 +771,441 @@ export class CellarClient {
   }
 
   /**
+   * Maps the `court` enum to the CDM corporate-body authority code that authors
+   * the ruling (`cdm:work_created_by_agent`). Live-verified 2026-07-05:
+   * Court of Justice rulings carry `.../corporate-body/CJ`, General Court rulings
+   * `.../corporate-body/GCEU`. Keys are exactly the non-"any" `COURTS` enum values.
+   */
+  private static readonly COURT_AGENT_MAP: Record<string, string> = {
+    COURT_JUSTICE: 'CJ',
+    GENERAL_COURT: 'GCEU',
+  };
+
+  /**
+   * Builds a SPARQL SELECT for CJEU case law. The four primary inputs (query,
+   * celex_id, ecli, related_celex) act as AND constraints and may be combined;
+   * the calling schema guarantees at least one is present.
+   *
+   * Case law is delimited by sector 6 (`resource_legal_id_sector "6"`), the CDM
+   * "case law" sector — probed 2026-07-05. `related_celex` uses the precise
+   * `cdm:case-law_interpretes_resource_legal` relation (case law that *interprets*
+   * the act, 72 works for the GDPR) rather than the broader `work_cites_work`
+   * (334 works, any mention). The `court` dimension maps to the authoring
+   * corporate body (CJ / GCEU); `type` to the case-law resource-type.
+   *
+   * ORDER BY policy mirrors the timeout learnings: a title-only `query` scan is a
+   * broad title-substring search (like sparqlQuery) — NO ORDER BY, oversample and
+   * sort client-side. Any of celex_id/ecli/related_celex anchors the query to a
+   * small result set, where ORDER BY DESC(?date) is safe. We oversample the LIMIT
+   * in both cases so the client-side dedup-by-CELEX (a work can carry several
+   * resource-types) cannot drop the result count below the requested `limit`.
+   */
+  buildCaseLawQuery(params: CaseLawQueryParams): string {
+    // params.language / params.type / params.court are Zod-validated enums; user
+    // free-text (query, celex_id, ecli, related_celex) only enters via
+    // escapeSparqlString. The 3-letter language code IS the language-URI suffix.
+    const lang = params.language;
+
+    const whereLines: string[] = [];
+
+    // Resource type (case-law procedure type). Same rationale as buildSparqlQuery:
+    // BIND the exact filtered type as ?resType so a multi-type work cannot report
+    // a different type than the one filtered on; for 'any' derive it from the URI.
+    if (params.type !== 'any') {
+      whereLines.push(
+        `    ?work cdm:work_has_resource-type <http://publications.europa.eu/resource/authority/resource-type/${params.type}> .`,
+        `    BIND("${params.type}" AS ?resType)`,
+      );
+    } else {
+      whereLines.push(
+        '    ?work cdm:work_has_resource-type ?resTypeUri .',
+        '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resType)',
+      );
+    }
+
+    // Restrict to the case-law sector. STR()-compare because the sector literal is
+    // typed xsd:string, which a plain "6" literal does not match in Virtuoso.
+    whereLines.push(
+      '    ?work cdm:resource_legal_id_sector ?sector .',
+      '    FILTER(STR(?sector) = "6")',
+    );
+
+    // CELEX identifier (always selected).
+    whereLines.push('    ?work cdm:resource_legal_id_celex ?celex .');
+    if (params.celex_id) {
+      whereLines.push(`    FILTER(STR(?celex) = "${escapeSparqlString(params.celex_id)}")`);
+    }
+
+    // ECLI: anchor on it when provided, otherwise fetch it optionally for output.
+    // Cellar stores ECLIs in their uppercase canonical form; the schema accepts
+    // lowercase input for user-friendliness (ECLI_REGEX is case-insensitive), so
+    // normalize to uppercase here — the one spot where the value enters the
+    // query — otherwise a lowercase input would validate but silently match zero
+    // rows.
+    if (params.ecli) {
+      whereLines.push(
+        '    ?work cdm:case-law_ecli ?ecli .',
+        `    FILTER(STR(?ecli) = "${escapeSparqlString(params.ecli.toUpperCase())}")`,
+      );
+    } else {
+      whereLines.push('    OPTIONAL { ?work cdm:case-law_ecli ?ecli . }');
+    }
+
+    // Case law interpreting a given legal act.
+    if (params.related_celex) {
+      whereLines.push(
+        '    ?act cdm:resource_legal_id_celex ?actCelex .',
+        `    FILTER(STR(?actCelex) = "${escapeSparqlString(params.related_celex)}")`,
+        '    ?work cdm:case-law_interpretes_resource_legal ?act .',
+      );
+    }
+
+    // Court filter via the authoring corporate body. params.court is a validated
+    // enum, its mapped code is a fixed constant — safe to embed.
+    if (params.court !== 'any') {
+      const agent = CellarClient.COURT_AGENT_MAP[params.court];
+      whereLines.push(
+        `    ?work cdm:work_created_by_agent <http://publications.europa.eu/resource/authority/corporate-body/${agent}> .`,
+      );
+    }
+
+    // Title (REQUIRED) in the requested language.
+    whereLines.push(
+      '    ?expr cdm:expression_belongs_to_work ?work .',
+      `    ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/${lang}> .`,
+      '    ?expr cdm:expression_title ?title .',
+    );
+
+    // Date is OPTIONAL.
+    whereLines.push('    OPTIONAL { ?work cdm:work_date_document ?date . }');
+
+    // Title substring filter.
+    if (params.query) {
+      whereLines.push(
+        `    FILTER(CONTAINS(LCASE(STR(?title)), LCASE("${escapeSparqlString(params.query)}")))`,
+      );
+    }
+
+    // Date filters.
+    if (params.date_from) {
+      whereLines.push(`    FILTER(?date >= "${params.date_from}"^^xsd:date)`);
+    }
+    if (params.date_to) {
+      whereLines.push(`    FILTER(?date <= "${params.date_to}"^^xsd:date)`);
+    }
+
+    const hasNarrowAnchor = Boolean(params.celex_id || params.ecli || params.related_celex);
+    const oversampledLimit = Math.min(params.limit * 3, 150);
+
+    const lines = [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      'PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>',
+      '',
+      'SELECT DISTINCT ?work ?celex ?ecli ?title ?date ?resType WHERE {',
+      ...whereLines,
+      '}',
+    ];
+    // ORDER BY only for anchored (small) result sets — see method doc.
+    if (hasNarrowAnchor) {
+      lines.push('ORDER BY DESC(?date)');
+    }
+    lines.push(`LIMIT ${oversampledLimit}`);
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Executes a case-law query and returns deduplicated, date-sorted results.
+   * Uses the same sortDedupSlice() pipeline as sparqlQuery(): sort date-desc
+   * (empty dates last), dedup by CELEX (a work can carry multiple
+   * resource-types), slice to the requested limit (the SPARQL LIMIT was
+   * oversampled).
+   */
+  async caseLawQuery(params: CaseLawQueryParams): Promise<CaseLawResult> {
+    const sparql = this.buildCaseLawQuery(params);
+    const data = await this.executeSparql<CaseLawSparqlResponse>(sparql);
+    const httpLang = LANGUAGE_ISO_MAP[params.language] ?? DEFAULT_ISO;
+
+    const entries: CaseLawEntry[] = data.results.bindings.map((b) => ({
+      celex: b.celex.value,
+      ecli: b.ecli?.value ?? '',
+      title: b.title.value,
+      date: b.date?.value ?? '',
+      type: b.resType.value,
+      eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${b.celex.value}`,
+    }));
+
+    const limited = sortDedupSlice(entries, params.limit);
+    return { results: limited, total: limited.length };
+  }
+
+  /**
+   * Builds the shared WHERE block for the transposition (NIM) queries.
+   *
+   * Probed 2026-07-05 (NIS2 32022L2555, Data Protection Dir 31995L0046): a
+   * national implementing measure links to the directive it transposes via
+   * `cdm:measure_national_implementing_implements_resource_legal`. A single NIM
+   * *work* can transpose several directives and then carries ONE CELEX per
+   * directive (`72022L2555DEU_...`), so anchoring on the implements-relation
+   * alone (then reading an arbitrary CELEX) would report the wrong reference.
+   * We therefore also constrain `?celex` to this directive's NIM prefix
+   * (`7` + the directive body, i.e. the sector-3 CELEX minus its leading sector
+   * digit) so each row's CELEX is the one for THIS directive. Both anchors
+   * agreed on 285 measures for NIS2 in probing. The country comes from
+   * `cdm:measure_national_implementing_implemented_by_country` (an
+   * alpha-3 country-authority URI); the title from `cdm:work_title`, which for
+   * a NIM exists only in the member state's own language (no `expression_title`).
+   *
+   * The prefix constraint uses an ANCHORED `REGEX`, not `STRSTARTS` (fixed
+   * post-review, mirrors findConsolidatedCelex's anchored REGEX below): a bare
+   * prefix match would let a superstring directive body (e.g. body "2555" vs.
+   * another directive's body "25551") through, since "72022L25551..." also
+   * starts with "72022L2555". Per probe P6 (docs/sdd/r2-task-4-report.md),
+   * after the directive body a NIM CELEX always continues with exactly a
+   * 3-letter country code and an underscore, so anchoring on
+   * `^<body>[A-Z]{3}_` rules out any such superstring. The body may contain
+   * the parens CELEX_REGEX allows, so regex metacharacters are escaped first.
+   */
+  private transpositionWhereLines(params: TranspositionQueryParams): string[] {
+    const escapedCelex = escapeSparqlString(params.celex_id);
+    // NIM CELEX = 7 + <sector-3 body> + <alpha-3 country> + "_" + <number>.
+    // Strip the single leading sector digit to get the body; prefix with 7.
+    const nimPrefix = `7${params.celex_id.slice(1)}`;
+    const nimCelexRegex = `^${escapeRegexMetachars(nimPrefix)}[A-Z]{3}_`;
+
+    const lines = [
+      '    ?dir cdm:resource_legal_id_celex ?dirCelex .',
+      `    FILTER(STR(?dirCelex) = "${escapedCelex}")`,
+      '    ?nim cdm:measure_national_implementing_implements_resource_legal ?dir .',
+      '    ?nim cdm:resource_legal_id_celex ?celex .',
+      `    FILTER(REGEX(STR(?celex), "${escapeSparqlString(nimCelexRegex)}"))`,
+      '    ?nim cdm:measure_national_implementing_implemented_by_country ?country .',
+    ];
+
+    if (params.country) {
+      // params.country is a validated COUNTRY_ENUM value, so alpha3 is always
+      // defined; guard for any internal (non-schema) caller.
+      const alpha3 = MS_ALPHA2_TO_ALPHA3[params.country];
+      if (!alpha3) {
+        throw new Error(`Unknown member-state code: ${params.country}`);
+      }
+      lines.push(
+        `    FILTER(?country = <http://publications.europa.eu/resource/authority/country/${alpha3}>)`,
+      );
+    }
+
+    lines.push(
+      '    BIND(REPLACE(STR(?country), "^.*/", "") AS ?cc)',
+      '    OPTIONAL { ?nim cdm:work_title ?title . }',
+      '    OPTIONAL { ?nim cdm:work_date_document ?date . }',
+    );
+
+    return lines;
+  }
+
+  /**
+   * Builds the SPARQL SELECT returning a directive's national implementing
+   * measures. The result set is anchored to one directive (bounded, indexed via
+   * the implements-relation), so `ORDER BY DESC(?date)` is safe here — unlike
+   * the broad title scans in buildSparqlQuery/buildCaseLawQuery.
+   */
+  buildTranspositionQuery(params: TranspositionQueryParams): string {
+    return [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      '',
+      'SELECT DISTINCT ?celex ?cc ?title ?date WHERE {',
+      ...this.transpositionWhereLines(params),
+      '}',
+      'ORDER BY DESC(?date)',
+      `LIMIT ${params.limit}`,
+    ].join('\n');
+  }
+
+  /** Builds the COUNT query (full match total, ignoring limit) for total_found. */
+  private buildTranspositionCountQuery(params: TranspositionQueryParams): string {
+    return [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      '',
+      'SELECT (COUNT(DISTINCT ?celex) AS ?n) WHERE {',
+      ...this.transpositionWhereLines(params),
+      '}',
+    ].join('\n');
+  }
+
+  /**
+   * Fetches the national implementing measures (NIMs) transposing an EU
+   * directive. Runs the page query and the total-count query in parallel; the
+   * count drives `total_found` so the caller can tell when `results` (capped at
+   * `limit`) is a truncated view. Country codes returned by SPARQL are alpha-3
+   * authority suffixes, mapped back to friendly 2-letter codes for output
+   * (falling back to the raw alpha-3 for non-member-state codes such as "GBR"
+   * on pre-Brexit directives).
+   *
+   * The count query is best-effort (`Promise.allSettled`, not `Promise.all`):
+   * a slow/failing COUNT must not discard an otherwise-valid page of results,
+   * so on count failure `total_found` falls back to the number of returned
+   * entries instead of the call throwing. The page query itself stays fatal.
+   */
+  async transpositionQuery(params: TranspositionQueryParams): Promise<TranspositionResult> {
+    const [dataResult, countResult] = await Promise.allSettled([
+      this.executeSparql<TranspositionSparqlResponse>(this.buildTranspositionQuery(params)),
+      this.executeSparql<CountSparqlResponse>(this.buildTranspositionCountQuery(params)),
+    ]);
+
+    if (dataResult.status === 'rejected') {
+      throw dataResult.reason;
+    }
+    const data = dataResult.value;
+
+    const httpLang = LANGUAGE_ISO_MAP[params.language] ?? DEFAULT_ISO;
+
+    const entries: TranspositionEntry[] = data.results.bindings.map((b) => {
+      const alpha3 = b.cc.value;
+      return {
+        country: MS_ALPHA3_TO_ALPHA2[alpha3] ?? alpha3,
+        title: b.title?.value ?? '',
+        date: b.date?.value ?? '',
+        celex: b.celex.value,
+        eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${b.celex.value}`,
+      };
+    });
+
+    // Defensive dedup/sort (shared with the search/case-law pipeline): a NIM has
+    // at most one work_title (verified), so this is normally a no-op, but it
+    // guarantees one row per CELEX and a stable date-desc order.
+    const results = sortDedupSlice(entries, params.limit);
+
+    // Best-effort fallback: count failed → report exactly what we returned.
+    const total_found =
+      countResult.status === 'fulfilled'
+        ? Number(countResult.value.results.bindings[0]?.n?.value ?? results.length)
+        : results.length;
+
+    return {
+      celex_id: params.celex_id,
+      results,
+      returned: results.length,
+      total_found,
+    };
+  }
+
+  /**
+   * Builds the SPARQL SELECT that finds the LEGISSUM plain-language summaries of
+   * an EU act. Probed 2026-07-05 (GDPR 32016R0679, DSA 32022R2065): summaries link
+   * to the act through `cdm:summary_legislation_eu_summarizes_resource_legal` — the
+   * property SPECIFIC to LEGISSUM (all 4679 subjects are resource-type LEGIS_SUM,
+   * 0 exceptions), unlike the broader `cdm:summary_summarizes_work` (43028 subjects,
+   * many non-LEGISSUM). The summary work carries no CELEX of its own, so we select
+   * its Cellar URI (?summary) to fetch content from, plus its LEGISSUM id, date and
+   * obsolete flag, and its title in the requested language. The set is anchored to
+   * one act (bounded — max 54 observed), so ORDER BY is unnecessary; selection of a
+   * primary is done client-side (selectPrimarySummary in tools/summary.ts).
+   */
+  buildSummaryQuery(celexId: string, language: string): string {
+    // The Cellar 3-letter code IS the language-authority URI suffix (no mapping).
+    const lang = language;
+    const escaped = escapeSparqlString(celexId);
+
+    return [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      '',
+      'SELECT DISTINCT ?summary ?legissumId ?date ?obsolete ?title WHERE {',
+      '  ?act cdm:resource_legal_id_celex ?celexVal .',
+      `  FILTER(STR(?celexVal) = "${escaped}")`,
+      '  ?summary cdm:summary_legislation_eu_summarizes_resource_legal ?act .',
+      '  OPTIONAL { ?summary cdm:summary_legislation_eu_id_legissum ?legissumId . }',
+      '  OPTIONAL { ?summary cdm:work_date_document ?date . }',
+      '  OPTIONAL { ?summary cdm:summary_legislation_eu_obsolete ?obsolete . }',
+      '  OPTIONAL {',
+      '    ?expr cdm:expression_belongs_to_work ?summary .',
+      `    ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/${lang}> .`,
+      '    ?expr cdm:expression_title ?title .',
+      '  }',
+      '}',
+      `LIMIT ${SUMMARY_LOOKUP_LIMIT}`,
+    ].join('\n');
+  }
+
+  /**
+   * Finds the LEGISSUM summaries of an act (see buildSummaryQuery). Returns one
+   * SummaryMeta per summary work; missing optionals become '' and an absent/
+   * non-truthy obsolete flag becomes false. An empty list means the act has no
+   * LEGISSUM summary — a legitimate result, not an error.
+   */
+  async findSummaries(celexId: string, language: string): Promise<SummaryMeta[]> {
+    const sparql = this.buildSummaryQuery(celexId, language);
+    const data = await this.executeSparql<SummarySparqlResponse>(sparql);
+
+    return data.results.bindings.map((b) => ({
+      uri: b.summary.value,
+      legissum_id: b.legissumId?.value ?? '',
+      title: b.title?.value ?? '',
+      date: b.date?.value ?? '',
+      // Cellar returns the xsd:boolean as "1"/"0" (also tolerate "true").
+      obsolete: b.obsolete?.value === '1' || b.obsolete?.value === 'true',
+    }));
+  }
+
+  /**
+   * Fetches a LEGISSUM summary's content by dereferencing its Cellar work URI with
+   * the strict xhtml5 content MIME (see CELLAR_SUMMARY_MIME) and an Accept-Language
+   * for the requested language variant. Retries on network errors/timeouts/5xx like
+   * the other Cellar fetches; a 404/406 means that language variant is unavailable.
+   *
+   * `summaryUri` is not user input — it comes from findSummaries' SPARQL results —
+   * but we still assert it is a publications.europa.eu resource URI as defense in
+   * depth before dereferencing it.
+   */
+  async fetchSummaryDocument(summaryUri: string, language: string): Promise<string> {
+    if (!/^https?:\/\/publications\.europa\.eu\/resource\//.test(summaryUri)) {
+      throw new Error(`Refusing to fetch a non-Cellar summary URI: ${summaryUri}`);
+    }
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
+
+    return this.withRetry(async () => {
+      const response = await fetch(summaryUri, {
+        method: 'GET',
+        headers: {
+          Accept: CELLAR_SUMMARY_MIME,
+          'Accept-Language': httpLang,
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (response.status === 404 || response.status === 406) {
+        throw new HttpStatusError(
+          `Summary content is not available in the requested language (${httpLang}). ` +
+            'Try another language, or read the full act with eurlex_fetch.',
+          response.status,
+        );
+      }
+      if (!response.ok) {
+        throw new HttpStatusError(`Fetch error: ${response.status}`, response.status);
+      }
+      return response.text();
+    });
+  }
+
+  /**
    * Resolves a EuroVoc label to its concept URI via a lightweight SPARQL query.
-   * Returns null if no matching concept is found.
+   * Returns null if no matching concept is found in any official EU language.
    *
    * Precision: labels are filtered to the request language, and results are ordered
    * so an exact (case-insensitive) label match wins over a mere substring match, then
    * the shortest label — a deterministic single winner instead of an arbitrary one.
+   *
+   * Cross-language fallback: a EuroVoc concept URI is language-independent — only
+   * its *labels* are per-language. Restricting attempt 1 to the request language
+   * means a caller who types an English term while the request language defaults
+   * to German gets a silent "0 results" that looks like "concept doesn't exist"
+   * but is really just a language mismatch (live-smoke finding, Task 7b). So when
+   * attempt 1 legitimately finds nothing, attempt 2 repeats the same query with
+   * the LANG() filter dropped entirely (still EuroVoc-namespace-scoped, still
+   * exact-match-preferred via the same ORDER BY) — a match in ANY language
+   * resolves the same concept. Only the FINAL outcome is cached under the
+   * label|language key: caching after attempt 1's null would permanently hide a
+   * fallback hit behind a stale "not found" for that language.
    */
   async resolveEurovocLabel(label: string, language: string): Promise<string | null> {
     const cacheKey = `${label.toLowerCase()}|${language}`;
@@ -722,29 +1213,43 @@ export class CellarClient {
     if (cached !== undefined) return cached;
 
     const escaped = escapeSparqlString(label);
-    const langLower = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const langLower = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
-    const sparql = [
-      'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
-      'SELECT ?concept WHERE {',
-      '  ?concept a skos:Concept .',
-      '  ?concept skos:prefLabel ?label .',
-      `  FILTER(STRSTARTS(STR(?concept), "http://eurovoc.europa.eu/"))`,
-      `  FILTER(LANG(?label) = "${langLower}")`,
-      `  FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${escaped}")))`,
-      '}',
-      `ORDER BY DESC(LCASE(STR(?label)) = LCASE("${escaped}")) STRLEN(STR(?label))`,
-      'LIMIT 1',
-    ].join('\n');
+    const buildQuery = (filterToLanguage: boolean): string =>
+      [
+        'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
+        'SELECT ?concept WHERE {',
+        '  ?concept a skos:Concept .',
+        '  ?concept skos:prefLabel ?label .',
+        `  FILTER(STRSTARTS(STR(?concept), "http://eurovoc.europa.eu/"))`,
+        filterToLanguage ? `  FILTER(LANG(?label) = "${langLower}")` : '',
+        `  FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${escaped}")))`,
+        '}',
+        `ORDER BY DESC(LCASE(STR(?label)) = LCASE("${escaped}")) STRLEN(STR(?label))`,
+        'LIMIT 1',
+      ]
+        .filter((line) => line !== '')
+        .join('\n');
 
-    const data = await this.executeSparql<{
-      results: { bindings: { concept: { value: string } }[] };
-    }>(sparql);
-    const bindings = data.results.bindings;
-    // null means "the query succeeded and found no matching concept" — a real
-    // legitimate "not found". Network/timeout/5xx errors propagate to the caller
-    // instead of being swallowed here (and are never cached, see below).
-    const result = bindings.length > 0 ? bindings[0].concept.value : null;
+    const runQuery = async (filterToLanguage: boolean): Promise<string | null> => {
+      const data = await this.executeSparql<{
+        results: { bindings: { concept: { value: string } }[] };
+      }>(buildQuery(filterToLanguage));
+      const bindings = data.results.bindings;
+      return bindings.length > 0 ? bindings[0].concept.value : null;
+    };
+
+    // Attempt 1: request-language labels only (previous behaviour).
+    // Network/timeout/5xx errors propagate to the caller instead of being
+    // swallowed here — and are never cached (no catch-all).
+    let result = await runQuery(true);
+
+    // Attempt 2 (fallback): only tried when attempt 1 legitimately found
+    // nothing. Its errors propagate uncaught too, same as attempt 1's.
+    if (result === null) {
+      result = await runQuery(false);
+    }
+
     this.eurovocLabelCache.set(cacheKey, result);
     return result;
   }
@@ -760,7 +1265,8 @@ export class CellarClient {
     language: string,
     limit: number,
   ): string {
-    const lang = LANGUAGE_URI_MAP[language] ?? language;
+    // 3-letter code = language-authority URI suffix (no mapping needed).
+    const lang = language;
 
     // Only accept URIs
     if (!conceptUri.startsWith('http')) {
@@ -831,7 +1337,7 @@ export class CellarClient {
     }
 
     const sparql = this.buildEurovocQuery(conceptUri, resourceType, language, limit);
-    const httpLang = LANGUAGE_HTTP_MAP[language] ?? 'de';
+    const httpLang = LANGUAGE_ISO_MAP[language] ?? DEFAULT_ISO;
 
     const data = await this.executeSparql<SparqlResponse>(sparql);
     return data.results.bindings.map((b) => ({
@@ -841,6 +1347,97 @@ export class CellarClient {
       type: b.resType.value,
       eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${b.celex.value}`,
     }));
+  }
+
+  /**
+   * Resolves a document identifier to its CELEX ID. Exactly one of `celex_id`,
+   * `eli`, or `oj_ref` is expected (the calling tool schema enforces the XOR via
+   * superRefine before this runs). A `celex_id` is returned as-is with no network
+   * call; `eli`/`oj_ref` are looked up against Cellar SPARQL.
+   */
+  async resolveCelexId(input: {
+    celex_id?: string;
+    eli?: string;
+    oj_ref?: string;
+  }): Promise<string> {
+    if (input.celex_id !== undefined) return input.celex_id;
+    if (input.eli !== undefined) return this.resolveEliToCelex(input.eli);
+    if (input.oj_ref !== undefined) return this.resolveOjRefToCelex(input.oj_ref);
+    throw new Error('No identifier provided. Give one of: celex_id, eli, or oj_ref.');
+  }
+
+  /**
+   * Resolves an ELI (full URL or short `type/year/number`) to its CELEX ID via
+   * SPARQL. ELI is stored as the typed literal `cdm:resource_legal_eli`
+   * (xsd:anyURI) — matched with FILTER(STR(...)) exactly as the metadata/citations
+   * queries match CELEX literals. Probed 2026-07-05: GDPR ELI resolves to
+   * 32016R0679, AI Act ELI to 32024R1689.
+   *
+   * @throws with example ELI formats when the ELI is malformed or unresolvable.
+   */
+  async resolveEliToCelex(eli: string): Promise<string> {
+    const canonical = normalizeEliToCanonicalUri(eli);
+
+    const sparql = [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      'SELECT ?celex WHERE {',
+      '  ?work cdm:resource_legal_eli ?eli .',
+      `  FILTER(STR(?eli) = "${escapeSparqlString(canonical)}")`,
+      '  ?work cdm:resource_legal_id_celex ?celex .',
+      '}',
+      'LIMIT 1',
+    ].join('\n');
+
+    const data = await this.executeSparql<{
+      results: { bindings: { celex: { value: string } }[] };
+    }>(sparql);
+
+    const bindings = data.results.bindings;
+    if (bindings.length === 0) {
+      throw new Error(
+        `Could not resolve ELI "${eli}" (${canonical}) to a CELEX ID: no matching EU act found. ` +
+          'Examples: "reg/2016/679" (GDPR), "dir/2022/2555" (NIS2).',
+      );
+    }
+    return bindings[0].celex.value;
+  }
+
+  /**
+   * Resolves an OJ reference in the post-2023 scheme (e.g. "OJ:L_202401689") to
+   * its CELEX ID via SPARQL. The work is linked to the OJ resource URI through
+   * `owl:sameAs` (probed 2026-07-05: L_202401689 -> 32024R1689, unique). The OJ
+   * reference alone cannot yield the CELEX arithmetically — its "L" is the OJ
+   * series, not the R/L/D act type — so this lookup is mandatory.
+   *
+   * @throws with an example OJ format when the reference is malformed or unresolvable.
+   */
+  async resolveOjRefToCelex(ojRef: string): Promise<string> {
+    // normalizeOjRefToResourceUri only emits [A-Za-z0-9_] in the id, so the URI is
+    // IRI-safe and embeds directly (like the validated URIs in buildEurovocQuery).
+    const ojUri = normalizeOjRefToResourceUri(ojRef);
+
+    const sparql = [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      'PREFIX owl: <http://www.w3.org/2002/07/owl#>',
+      'SELECT ?celex WHERE {',
+      `  ?work owl:sameAs <${ojUri}> .`,
+      '  ?work cdm:resource_legal_id_celex ?celex .',
+      '}',
+      'LIMIT 1',
+    ].join('\n');
+
+    const data = await this.executeSparql<{
+      results: { bindings: { celex: { value: string } }[] };
+    }>(sparql);
+
+    const bindings = data.results.bindings;
+    if (bindings.length === 0) {
+      throw new Error(
+        `Could not resolve OJ reference "${ojRef}" (${ojUri}) to a CELEX ID: no matching EU act found. ` +
+          'Example: "OJ:L_202401689" (AI Act).',
+      );
+    }
+    return bindings[0].celex.value;
   }
 
   /** Maps doc_type (reg/dir/dec) to CELEX type letter (R/L/D) */

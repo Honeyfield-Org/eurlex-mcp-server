@@ -44,4 +44,20 @@ describe('eurlex_guide content', () => {
     expect(guideSource).toContain('DIR_IMPL')
     expect(guideSource).toContain('RECO')
   })
+
+  it('ES11 – guide mentions the round-2 tools (case_law, transposition, structure, summary)', () => {
+    expect(guideSource).toContain('eurlex_case_law')
+    expect(guideSource).toContain('eurlex_transposition')
+    expect(guideSource).toContain('eurlex_structure')
+    expect(guideSource).toContain('eurlex_summary')
+  })
+
+  it('ES10 – guide mentions eurlex_sparql and its CDM cheat sheet', () => {
+    expect(guideSource).toContain('eurlex_sparql')
+    expect(guideSource).toContain('CDM cheat sheet')
+    // Core properties the escape hatch needs, extracted from the client.
+    expect(guideSource).toContain('cdm:resource_legal_id_celex')
+    expect(guideSource).toContain('cdm:expression_uses_language')
+    expect(guideSource).toContain('cdm:case-law_ecli')
+  })
 })
