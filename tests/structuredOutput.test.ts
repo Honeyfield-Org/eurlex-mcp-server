@@ -409,6 +409,37 @@ describe('structuredContent conformance', () => {
     expect(out.content).toBeUndefined()
   })
 
+  it('eurlex_summary — multi-summary: fetches primary, populates other_summaries array', async () => {
+    mock.findSummaries.mockResolvedValueOnce([
+      {
+        uri: 'obsolete-old',
+        legissum_id: '111',
+        title: 'Old summary title',
+        date: '2015-01-01',
+        obsolete: true,
+      },
+      {
+        uri: 'current',
+        legissum_id: '222',
+        title: 'General data protection regulation (GDPR)',
+        date: '2024-01-01',
+        obsolete: false,
+      },
+    ])
+    mock.fetchSummaryDocument.mockResolvedValueOnce('<p>current summary content</p>')
+    const { client } = await connectedClient()
+    const res = await client.callTool({ name: 'eurlex_summary', arguments: { celex_id: '32016R0679', language: 'ENG' } })
+    const out = summaryOutputSchema.parse(res.structuredContent)
+    expect(out.total_summaries).toBe(2)
+    expect(out.legissum_id).toBe('222')
+    expect(out.obsolete).toBe(false)
+    expect(out.other_summaries).toHaveLength(1)
+    expect(out.other_summaries?.[0].legissum_id).toBe('111')
+    expect(out.other_summaries?.[0].obsolete).toBe(true)
+    expect(out.other_summaries?.[0].title).toBeDefined()
+    expect(out.other_summaries?.[0].date).toBeDefined()
+  })
+
   it('eurlex_sparql — happy (SELECT): vars + bindings + numeric row_count', async () => {
     mock.executeRawSparql.mockResolvedValueOnce({
       head: { vars: ['celex'] },
@@ -442,6 +473,30 @@ describe('structuredContent conformance', () => {
     const res = await client.callTool({ name: 'eurlex_sparql', arguments: { query: 'SELECT ?x WHERE { ?x ?p ?o }' } })
     const out = sparqlOutputSchema.parse(res.structuredContent)
     expect(out.limit_added).toBe(true)
+  })
+
+  it('eurlex_sparql — minor: SELECT response without head.vars', async () => {
+    mock.executeRawSparql.mockResolvedValueOnce({ head: {}, results: { bindings: [{ x: { type: 'literal', value: 'test' } }] } })
+    const { client } = await connectedClient()
+    const res = await client.callTool({ name: 'eurlex_sparql', arguments: { query: 'SELECT * WHERE { ?x ?p ?o } LIMIT 10' } })
+    const out = sparqlOutputSchema.parse(res.structuredContent)
+    expect(out.vars).toBeUndefined()
+    expect(out.row_count).toBe(1)
+  })
+
+  it('eurlex_structure — minor: truncated outline with note present', async () => {
+    const manyHeadings =
+      '<html><body>' +
+      Array.from({ length: 350 }, (_, i) => `<p class="oj-ti-art">Article ${i + 1}</p>`).join('\n') +
+      '</body></html>'
+    mock.fetchDocument.mockResolvedValueOnce(manyHeadings)
+    const { client } = await connectedClient()
+    const res = await client.callTool({ name: 'eurlex_structure', arguments: { celex_id: '32024R1689', language: 'ENG' } })
+    const out = structureOutputSchema.parse(res.structuredContent)
+    expect(out.truncated).toBe(true)
+    expect(out.note).toBeDefined()
+    expect(out.outline.length).toBe(300)
+    expect(out.total_headings).toBe(350)
   })
 })
 
