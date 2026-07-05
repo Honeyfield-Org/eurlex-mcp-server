@@ -15,10 +15,12 @@ Ask your AI assistant questions like:
 - _"Find EU regulations about artificial intelligence from 2024"_
 - _"Show me the full text of the AI Act (32024R1689)"_
 - _"What EuroVoc topics are assigned to the GDPR?"_
+- _"Which EU acts are about cybersecurity as a topic, even if the word isn't in the title?"_
 - _"Which documents cite the Digital Services Act?"_
 - _"Search for directives about renewable energy"_
 - _"Get the consolidated version of Regulation 2016/679 (GDPR)"_
 - _"Which CJEU judgments interpret the GDPR?"_
+- _"Look up the Court of Justice ruling with ECLI ECLI:EU:C:2014:317"_
 - _"How did Germany transpose the NIS2 Directive?"_
 - _"Outline the AI Act, then show me just Article 5"_
 - _"Give me the plain-language summary of the Digital Services Act"_
@@ -322,7 +324,7 @@ CELEX identifiers uniquely identify EU legal documents. The format is:
 [sector][year][type][number]
 ```
 
-- **Sector** (1 digit): `3` = legislation, `6` = case law, `5` = preparatory acts
+- **Sector** (1 digit): `3` = legislation, `6` = case law, `7` = national transposition measures (the sectors these tools cover)
 - **Year** (4 digits): year of the document
 - **Type** (1-2 letters): `R` = regulation, `L` = directive, `D` = decision, `J` = judgment, etc.
 - **Number**: sequential number
