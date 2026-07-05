@@ -21,6 +21,9 @@ import type {
   MetadataResult,
   CitationsResult,
   CitationEntry,
+  CaseLawQueryParams,
+  CaseLawEntry,
+  CaseLawResult,
 } from '../types.js';
 
 import { normalizeEliToCanonicalUri, normalizeOjRefToResourceUri } from './identifiers.js';
@@ -93,6 +96,19 @@ interface CitationsSparqlResponse {
       date?: SparqlBindingValue;
       resType: SparqlBindingValue;
       rel: SparqlBindingValue;
+    }[];
+  };
+}
+
+/** Shape of the case-law SPARQL JSON results */
+interface CaseLawSparqlResponse {
+  results: {
+    bindings: {
+      celex: SparqlBindingValue;
+      ecli?: SparqlBindingValue;
+      title: SparqlBindingValue;
+      date?: SparqlBindingValue;
+      resType: SparqlBindingValue;
     }[];
   };
 }
@@ -707,6 +723,185 @@ export class CellarClient {
       total: citations.length,
       counts: { cites, cited_by: citations.length - cites },
     };
+  }
+
+  /**
+   * Maps the `court` enum to the CDM corporate-body authority code that authors
+   * the ruling (`cdm:work_created_by_agent`). Live-verified 2026-07-05:
+   * Court of Justice rulings carry `.../corporate-body/CJ`, General Court rulings
+   * `.../corporate-body/GCEU`. Keys are exactly the non-"any" `COURTS` enum values.
+   */
+  private static readonly COURT_AGENT_MAP: Record<string, string> = {
+    COURT_JUSTICE: 'CJ',
+    GENERAL_COURT: 'GCEU',
+  };
+
+  /**
+   * Builds a SPARQL SELECT for CJEU case law. The four primary inputs (query,
+   * celex_id, ecli, related_celex) act as AND constraints and may be combined;
+   * the calling schema guarantees at least one is present.
+   *
+   * Case law is delimited by sector 6 (`resource_legal_id_sector "6"`), the CDM
+   * "case law" sector — probed 2026-07-05. `related_celex` uses the precise
+   * `cdm:case-law_interpretes_resource_legal` relation (case law that *interprets*
+   * the act, 72 works for the GDPR) rather than the broader `work_cites_work`
+   * (334 works, any mention). The `court` dimension maps to the authoring
+   * corporate body (CJ / GCEU); `type` to the case-law resource-type.
+   *
+   * ORDER BY policy mirrors the timeout learnings: a title-only `query` scan is a
+   * broad title-substring search (like sparqlQuery) — NO ORDER BY, oversample and
+   * sort client-side. Any of celex_id/ecli/related_celex anchors the query to a
+   * small result set, where ORDER BY DESC(?date) is safe. We oversample the LIMIT
+   * in both cases so the client-side dedup-by-CELEX (a work can carry several
+   * resource-types) cannot drop the result count below the requested `limit`.
+   */
+  buildCaseLawQuery(params: CaseLawQueryParams): string {
+    // params.language / params.type / params.court are Zod-validated enums; user
+    // free-text (query, celex_id, ecli, related_celex) only enters via
+    // escapeSparqlString. The 3-letter language code IS the language-URI suffix.
+    const lang = params.language;
+
+    const whereLines: string[] = [];
+
+    // Resource type (case-law procedure type). Same rationale as buildSparqlQuery:
+    // BIND the exact filtered type as ?resType so a multi-type work cannot report
+    // a different type than the one filtered on; for 'any' derive it from the URI.
+    if (params.type !== 'any') {
+      whereLines.push(
+        `    ?work cdm:work_has_resource-type <http://publications.europa.eu/resource/authority/resource-type/${params.type}> .`,
+        `    BIND("${params.type}" AS ?resType)`,
+      );
+    } else {
+      whereLines.push(
+        '    ?work cdm:work_has_resource-type ?resTypeUri .',
+        '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resType)',
+      );
+    }
+
+    // Restrict to the case-law sector. STR()-compare because the sector literal is
+    // typed xsd:string, which a plain "6" literal does not match in Virtuoso.
+    whereLines.push(
+      '    ?work cdm:resource_legal_id_sector ?sector .',
+      '    FILTER(STR(?sector) = "6")',
+    );
+
+    // CELEX identifier (always selected).
+    whereLines.push('    ?work cdm:resource_legal_id_celex ?celex .');
+    if (params.celex_id) {
+      whereLines.push(`    FILTER(STR(?celex) = "${escapeSparqlString(params.celex_id)}")`);
+    }
+
+    // ECLI: anchor on it when provided, otherwise fetch it optionally for output.
+    if (params.ecli) {
+      whereLines.push(
+        '    ?work cdm:case-law_ecli ?ecli .',
+        `    FILTER(STR(?ecli) = "${escapeSparqlString(params.ecli)}")`,
+      );
+    } else {
+      whereLines.push('    OPTIONAL { ?work cdm:case-law_ecli ?ecli . }');
+    }
+
+    // Case law interpreting a given legal act.
+    if (params.related_celex) {
+      whereLines.push(
+        '    ?act cdm:resource_legal_id_celex ?actCelex .',
+        `    FILTER(STR(?actCelex) = "${escapeSparqlString(params.related_celex)}")`,
+        '    ?work cdm:case-law_interpretes_resource_legal ?act .',
+      );
+    }
+
+    // Court filter via the authoring corporate body. params.court is a validated
+    // enum, its mapped code is a fixed constant — safe to embed.
+    if (params.court !== 'any') {
+      const agent = CellarClient.COURT_AGENT_MAP[params.court];
+      whereLines.push(
+        `    ?work cdm:work_created_by_agent <http://publications.europa.eu/resource/authority/corporate-body/${agent}> .`,
+      );
+    }
+
+    // Title (REQUIRED) in the requested language.
+    whereLines.push(
+      '    ?expr cdm:expression_belongs_to_work ?work .',
+      `    ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/${lang}> .`,
+      '    ?expr cdm:expression_title ?title .',
+    );
+
+    // Date is OPTIONAL.
+    whereLines.push('    OPTIONAL { ?work cdm:work_date_document ?date . }');
+
+    // Title substring filter.
+    if (params.query) {
+      whereLines.push(
+        `    FILTER(CONTAINS(LCASE(STR(?title)), LCASE("${escapeSparqlString(params.query)}")))`,
+      );
+    }
+
+    // Date filters.
+    if (params.date_from) {
+      whereLines.push(`    FILTER(?date >= "${params.date_from}"^^xsd:date)`);
+    }
+    if (params.date_to) {
+      whereLines.push(`    FILTER(?date <= "${params.date_to}"^^xsd:date)`);
+    }
+
+    const hasNarrowAnchor = Boolean(params.celex_id || params.ecli || params.related_celex);
+    const oversampledLimit = Math.min(params.limit * 3, 150);
+
+    const lines = [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      'PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>',
+      '',
+      'SELECT DISTINCT ?work ?celex ?ecli ?title ?date ?resType WHERE {',
+      ...whereLines,
+      '}',
+    ];
+    // ORDER BY only for anchored (small) result sets — see method doc.
+    if (hasNarrowAnchor) {
+      lines.push('ORDER BY DESC(?date)');
+    }
+    lines.push(`LIMIT ${oversampledLimit}`);
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Executes a case-law query and returns deduplicated, date-sorted results.
+   * The same client-side pipeline as sparqlQuery: sort date-desc (empty dates
+   * last), dedup by CELEX (a work can carry multiple resource-types), slice to
+   * the requested limit (the SPARQL LIMIT was oversampled).
+   */
+  async caseLawQuery(params: CaseLawQueryParams): Promise<CaseLawResult> {
+    const sparql = this.buildCaseLawQuery(params);
+    const data = await this.executeSparql<CaseLawSparqlResponse>(sparql);
+    const httpLang = LANGUAGE_ISO_MAP[params.language] ?? DEFAULT_ISO;
+
+    const entries: CaseLawEntry[] = data.results.bindings.map((b) => ({
+      celex: b.celex.value,
+      ecli: b.ecli?.value ?? '',
+      title: b.title.value,
+      date: b.date?.value ?? '',
+      type: b.resType.value,
+      eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${b.celex.value}`,
+    }));
+
+    // Date descending, empty/missing dates last. Array.sort is stable, so equal
+    // dates keep their original (query) order. ISO dates sort chronologically.
+    const sorted = [...entries].sort((a, b) => {
+      if (a.date === b.date) return 0;
+      if (a.date === '') return 1;
+      if (b.date === '') return -1;
+      return a.date < b.date ? 1 : -1;
+    });
+
+    const seen = new Set<string>();
+    const deduped = sorted.filter((r) => {
+      if (seen.has(r.celex)) return false;
+      seen.add(r.celex);
+      return true;
+    });
+
+    const limited = deduped.slice(0, params.limit);
+    return { results: limited, total: limited.length };
   }
 
   /**

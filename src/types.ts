@@ -88,6 +88,40 @@ export interface CitationsResult {
   counts: { cites: number; cited_by: number };
 }
 
+export interface CaseLawQueryParams {
+  /** Title substring to search for among case law (case-insensitive CONTAINS). */
+  query?: string;
+  /** Sector-6 CELEX of a specific ruling to look up. */
+  celex_id?: string;
+  /** ECLI of a specific ruling to look up. */
+  ecli?: string;
+  /** CELEX of a legal act; returns case law interpreting it. */
+  related_celex?: string;
+  /** COURT_JUSTICE | GENERAL_COURT | any */
+  court: string;
+  /** JUDG | ORDER | OPIN_AG | any */
+  type: string;
+  language: string;
+  limit: number;
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface CaseLawEntry {
+  celex: string;
+  /** ECLI, or '' when the work carries none (mirrors `date: ''` for absent dates). */
+  ecli: string;
+  title: string;
+  date: string;
+  type: string;
+  eurlex_url: string;
+}
+
+export interface CaseLawResult {
+  results: CaseLawEntry[];
+  total: number;
+}
+
 export interface ConsolidatedResult {
   doc_type: string;
   year: number;

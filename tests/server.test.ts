@@ -38,6 +38,10 @@ vi.mock('../src/tools/consolidated.js', () => ({
   registerConsolidatedTool: vi.fn(),
 }))
 
+vi.mock('../src/tools/caseLaw.js', () => ({
+  registerCaseLawTool: vi.fn(),
+}))
+
 vi.mock('../src/prompts/guide.js', () => ({
   registerGuidePrompt: vi.fn(),
 }))
@@ -123,5 +127,14 @@ describe('createServer()', () => {
     createServer()
 
     expect(registerConsolidatedTool).toHaveBeenCalledOnce()
+  })
+
+  it('S9 – createServer calls registerCaseLawTool', async () => {
+    const { registerCaseLawTool } = await import('../src/tools/caseLaw.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerCaseLawTool).toHaveBeenCalledOnce()
   })
 })

@@ -182,4 +182,58 @@ describe('Phase 5 – Live Validation', () => {
       /Could not resolve ELI/
     )
   }, TIMEOUT)
+
+  // CL-LIVE-1 (Task 3): ECLI lookup — Google Spain by ECLI resolves to CELEX
+  // 62012CJ0131 with type JUDG. Exercises the cdm:case-law_ecli anchor.
+  it('CL-LIVE-1: caseLawQuery by ECLI finds Google Spain (62012CJ0131)', async () => {
+    const result = await client.caseLawQuery({
+      ecli: 'ECLI:EU:C:2014:317',
+      court: 'any',
+      type: 'any',
+      language: 'ENG',
+      limit: 10,
+    })
+
+    expect(result.total).toBeGreaterThanOrEqual(1)
+    const first = result.results[0]
+    expect(first.celex).toBe('62012CJ0131')
+    expect(first.ecli).toBe('ECLI:EU:C:2014:317')
+    expect(first.type).toBe('JUDG')
+    expect(first.date).toBe('2014-05-13')
+    expect(first.eurlex_url).toContain('CELEX:62012CJ0131')
+  }, TIMEOUT)
+
+  // CL-LIVE-2 (Task 3): related_celex — case law interpreting the GDPR
+  // (32016R0679) via cdm:case-law_interpretes_resource_legal. Result set is real
+  // and non-trivial; every hit is a sector-6 ruling with an ECLI.
+  it('CL-LIVE-2: caseLawQuery related_celex=32016R0679 returns GDPR case law', async () => {
+    const result = await client.caseLawQuery({
+      related_celex: '32016R0679',
+      court: 'COURT_JUSTICE',
+      type: 'JUDG',
+      language: 'ENG',
+      limit: 10,
+    })
+
+    expect(result.total).toBeGreaterThanOrEqual(1)
+    for (const r of result.results) {
+      expect(r.celex).toMatch(/^6/) // sector-6 CELEX
+      expect(r.type).toBe('JUDG')
+    }
+  }, TIMEOUT)
+
+  // CL-LIVE-3 (Task 3): title-substring search — "Schrems" finds the Schrems II
+  // judgment (62018CJ0311). Exercises the no-ORDER-BY oversample path on sector 6.
+  it('CL-LIVE-3: caseLawQuery title search "Schrems" finds Schrems II (62018CJ0311)', async () => {
+    const result = await client.caseLawQuery({
+      query: 'Schrems',
+      court: 'any',
+      type: 'JUDG',
+      language: 'ENG',
+      limit: 20,
+    })
+
+    expect(result.total).toBeGreaterThanOrEqual(1)
+    expect(result.results.map((r) => r.celex)).toContain('62018CJ0311')
+  }, TIMEOUT)
 })
