@@ -22,6 +22,9 @@ Searches legal acts by EuroVoc concept. Finds documents that don't have the sear
 ### eurlex_consolidated — Consolidated version
 Fetches the currently in-force version (with all amendments merged in) via ELI. Identify the act with celex_id (e.g. "32016R0679") OR with doc_type + year + number — provide exactly one of the two. celex_id must be a sector-3 secondary-law CELEX (3YYYY[R|L|D]NNNN). Paginate with offset and max_chars like eurlex_fetch.
 
+### eurlex_sparql — Raw SPARQL (expert escape hatch)
+Runs a raw, read-only SPARQL query directly against the Cellar endpoint for questions the tools above cannot express. Only SELECT and ASK are accepted; SPARQL Update and federated SERVICE clauses are rejected. A SELECT with no top-level LIMIT gets LIMIT 50 appended; a top-level LIMIT above 100 is rejected. Use the CDM cheat sheet below to build queries. Match CELEX/ELI literals with FILTER(STR(?x) = "..."), because they are typed xsd:string.
+
 ## CELEX numbering scheme
 - 3 = EU secondary legislation (regulations, directives, decisions)
 - Then: year (4 digits) + type letter + document number
@@ -40,6 +43,55 @@ DIR_IMPL (implementing directive), DIR_DEL (delegated directive),
 DEC_IMPL (implementing decision), DEC_DEL (delegated decision),
 RECO (recommendation),
 JUDG (judgment), ORDER (court order), OPIN_AG (Advocate General opinion)
+
+## CDM cheat sheet (for eurlex_sparql)
+The Cellar data model (CDM). These are exactly the properties the tools above use.
+
+Prefixes:
+- \`cdm: <http://publications.europa.eu/ontology/cdm#>\`
+- \`skos: <http://www.w3.org/2004/02/skos/core#>\`
+- \`owl: <http://www.w3.org/2002/07/owl#>\`
+- \`xsd: <http://www.w3.org/2001/XMLSchema#>\`
+
+A "work" is the abstract act; an "expression" is its language version. Bridge them
+with \`?expr cdm:expression_belongs_to_work ?work\`.
+
+Identity & typing (on the work):
+- \`cdm:resource_legal_id_celex\` → CELEX literal (xsd:string; match with FILTER(STR(?x) = "..."))
+- \`cdm:resource_legal_id_sector\` → sector digit as a string ("6" = case law)
+- \`cdm:resource_legal_eli\` → ELI (xsd:anyURI); \`owl:sameAs\` → the OJ resource URI
+- \`cdm:work_has_resource-type\` → \`.../resource/authority/resource-type/{REG|DIR|DEC|JUDG|...}\`
+
+Title & language (on the expression):
+- \`cdm:expression_uses_language\` → \`.../resource/authority/language/{ENG|DEU|FRA|POL|...}\` (Cellar 3-letter)
+- \`cdm:expression_title\` → the title in that language
+- SKOS/EuroVoc labels are filtered by ISO-2 tag: \`FILTER(LANG(?label) = "en")\`
+
+Dates & status (on the work):
+- \`cdm:work_date_document\`, \`cdm:resource_legal_date_entry-into-force\`,
+  \`cdm:resource_legal_date_end-of-validity\` (9999-12-31 = open-ended),
+  \`cdm:resource_legal_in-force\`, \`cdm:resource_legal_date_transposition\`
+
+Actors & concepts:
+- \`cdm:work_created_by_agent\` → \`.../authority/corporate-body/{EP|CJ|GCEU|...}\`; name via \`skos:prefLabel\`
+- \`cdm:work_is_about_concept_eurovoc\` → EuroVoc concept (\`http://eurovoc.europa.eu/...\`); label via \`skos:prefLabel\`
+- \`cdm:resource_legal_is_about_concept_directory-code\` → directory code
+
+Relationships (work → work):
+- \`cdm:work_cites_work\`, \`cdm:resource_legal_based_on_resource_legal\`,
+  \`cdm:resource_legal_amends_resource_legal\`, \`cdm:resource_legal_repeals_resource_legal\`
+
+Case law (sector 6):
+- \`cdm:case-law_ecli\` → ECLI (uppercase); \`cdm:case-law_interpretes_resource_legal\` → the act interpreted
+
+Transposition (national implementing measures, sector 7):
+- \`cdm:measure_national_implementing_implements_resource_legal\` → the directive
+- \`cdm:measure_national_implementing_implemented_by_country\` → \`.../authority/country/{alpha-3}\`
+- NIM titles are on \`cdm:work_title\` (member-state language only, no expression_title)
+
+Legislative summaries (LEGISSUM):
+- \`cdm:summary_legislation_eu_summarizes_resource_legal\` → the act
+- \`cdm:summary_legislation_eu_id_legissum\`, \`cdm:summary_legislation_eu_obsolete\`
 
 ## Search strategy
 1. eurlex_search only matches titles → use eurlex_by_eurovoc for thematic discovery

@@ -235,6 +235,33 @@ export interface StructureResult {
   note?: string;
 }
 
+/**
+ * Result of the raw `eurlex_sparql` escape hatch. Mirrors the shape of a SPARQL
+ * 1.1 JSON result (SELECT → `vars` + `bindings`; ASK → `boolean`) but adds the
+ * row accounting the tool layers on top: `row_count` is the full number of rows
+ * the query produced, `returned_rows` how many survived the char-budget
+ * truncation, and `truncated` flags when rows were dropped. `bindings` holds the
+ * raw SPARQL binding objects unchanged (the tool does no per-cell reshaping — it
+ * is an expert escape hatch). `limit_added` appears only when the tool appended
+ * the default LIMIT because the SELECT had no top-level one.
+ */
+export interface SparqlRawResult {
+  /** Projected variable names, from the SPARQL result `head.vars` (SELECT only). */
+  vars?: string[];
+  /** Total rows the query returned (SELECT); null for ASK. */
+  row_count: number | null;
+  /** Rows included in `bindings` after char-budget truncation (SELECT); null for ASK. */
+  returned_rows: number | null;
+  /** True when whole rows were dropped to fit the response char budget. */
+  truncated: boolean;
+  /** Raw SPARQL binding rows, possibly truncated (SELECT only). */
+  bindings?: unknown[];
+  /** ASK result (present only for ASK queries). */
+  boolean?: boolean;
+  /** Present (true) only when the tool auto-appended the default LIMIT. */
+  limit_added?: true;
+}
+
 export interface ConsolidatedResult {
   doc_type: string;
   year: number;

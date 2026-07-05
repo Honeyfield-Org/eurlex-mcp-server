@@ -47,6 +47,19 @@ export const CONSOLIDATED_CELEX_CACHE_MAX_ENTRIES = 500;
 export const METADATA_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const METADATA_CACHE_MAX_ENTRIES = 200;
 
+// eurlex_sparql (Task 7) — raw read-only SPARQL escape hatch.
+// Query length bounds keep abusive/empty payloads out before any parsing.
+export const SPARQL_QUERY_MIN_LENGTH = 10;
+export const SPARQL_QUERY_MAX_LENGTH = 5000;
+// LIMIT policy: append this when the SELECT has no top-level LIMIT; reject a
+// top-level LIMIT above the max. Fairness/token-budget cap on a public endpoint,
+// not a security control.
+export const SPARQL_DEFAULT_LIMIT = 50;
+export const SPARQL_MAX_LIMIT = 100;
+// Bindings are truncated (whole rows dropped) to keep the serialized response
+// at or below this many characters; the response then carries `truncated: true`.
+export const SPARQL_RESPONSE_CHAR_BUDGET = 40000;
+
 export const RESOURCE_TYPES = [
   'REG',
   'REG_IMPL',

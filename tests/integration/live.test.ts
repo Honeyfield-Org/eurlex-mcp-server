@@ -6,9 +6,10 @@
  */
 
 import { CellarClient } from '../../src/services/cellarClient.js'
+import { handleEurlexSparql } from '../../src/tools/sparql.js'
 import { handleEurlexStructure } from '../../src/tools/structure.js'
 import { handleEurlexSummary, selectPrimarySummary } from '../../src/tools/summary.js'
-import type { StructureResult, SummaryResult } from '../../src/types.js'
+import type { SparqlRawResult, StructureResult, SummaryResult } from '../../src/types.js'
 import { parseOutline, processContent, stripHtml } from '../../src/utils.js'
 
 const client = new CellarClient()
@@ -374,5 +375,42 @@ describe('Phase 5 – Live Validation', () => {
     })
     expect(res.isError).toBeFalsy()
     expect(res.content[0].text).toContain('No LEGISSUM summary')
+  }, TIMEOUT)
+
+  // SPARQL-LIVE-1 (Task 7): a simple SELECT through the full eurlex_sparql handler.
+  // The query has no top-level LIMIT, so the tool appends LIMIT 50 (limit_added) and
+  // the endpoint returns the GDPR CELEX. Exercises validateAndPrepareSparql +
+  // executeRawSparql + shapeSparqlResult end-to-end against the real endpoint.
+  it('SPARQL-LIVE-1: eurlex_sparql runs a simple SELECT and applies the default LIMIT', async () => {
+    const res = await handleEurlexSparql({
+      query:
+        'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#> ' +
+        'SELECT ?celex WHERE { ?w cdm:resource_legal_id_celex ?celex . ' +
+        'FILTER(STR(?celex) = "32016R0679") }',
+    })
+    expect(res.isError).toBeFalsy()
+
+    const out = JSON.parse(res.content[0].text) as SparqlRawResult
+    expect(out.limit_added).toBe(true)
+    expect(out.vars).toEqual(['celex'])
+    expect(out.row_count).toBeGreaterThanOrEqual(1)
+    expect(out.truncated).toBe(false)
+    const values = (out.bindings as { celex: { value: string } }[]).map((b) => b.celex.value)
+    expect(values).toContain('32016R0679')
+  }, TIMEOUT)
+
+  // SPARQL-LIVE-2 (Task 7): an ASK returns the boolean, no bindings.
+  it('SPARQL-LIVE-2: eurlex_sparql runs an ASK and returns a boolean', async () => {
+    const res = await handleEurlexSparql({
+      query:
+        'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#> ' +
+        'ASK { ?w cdm:resource_legal_id_celex ?c . FILTER(STR(?c) = "32016R0679") }',
+    })
+    expect(res.isError).toBeFalsy()
+
+    const out = JSON.parse(res.content[0].text) as SparqlRawResult
+    expect(out.boolean).toBe(true)
+    expect(out.row_count).toBeNull()
+    expect(out.bindings).toBeUndefined()
   }, TIMEOUT)
 })

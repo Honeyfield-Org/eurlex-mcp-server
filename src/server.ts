@@ -8,6 +8,7 @@ import { registerEurovocTool } from './tools/eurovoc.js';
 import { registerFetchTool } from './tools/fetch.js';
 import { registerMetadataTool } from './tools/metadata.js';
 import { registerSearchTool } from './tools/search.js';
+import { registerSparqlTool } from './tools/sparql.js';
 import { registerStructureTool } from './tools/structure.js';
 import { registerSummaryTool } from './tools/summary.js';
 import { registerTranspositionTool } from './tools/transposition.js';
@@ -29,6 +30,7 @@ export function createServer(): McpServer {
   registerTranspositionTool(server);
   registerStructureTool(server);
   registerSummaryTool(server);
+  registerSparqlTool(server);
   registerGuidePrompt(server);
 
   return server;

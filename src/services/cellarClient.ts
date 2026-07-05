@@ -429,6 +429,19 @@ export class CellarClient {
   }
 
   /**
+   * Executes an already-validated raw SPARQL query (the `eurlex_sparql` escape
+   * hatch) and returns the endpoint's SPARQL 1.1 JSON result verbatim. This is the
+   * ONLY path that runs caller-authored SPARQL, so the read-only guard and LIMIT
+   * policy (validateAndPrepareSparql in tools/sparql.ts) MUST run before it — this
+   * method deliberately does no validation, it only reuses executeSparql's transport
+   * (POST, timeout, retry-on-5xx, JSON parse). Typed `unknown` because the shape
+   * depends on the query (SELECT bindings vs. ASK boolean); the tool narrows it.
+   */
+  async executeRawSparql(query: string): Promise<unknown> {
+    return this.executeSparql<unknown>(query);
+  }
+
+  /**
    * Shared REST-GET logic for fetching a document from Cellar by CELEX identifier,
    * used by both fetchDocument() and fetchConsolidated(). Handles content negotiation
    * (Accept/Accept-Language), redirects, timeout, and 404/406/!ok status handling.

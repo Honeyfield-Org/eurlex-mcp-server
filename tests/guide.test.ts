@@ -44,4 +44,13 @@ describe('eurlex_guide content', () => {
     expect(guideSource).toContain('DIR_IMPL')
     expect(guideSource).toContain('RECO')
   })
+
+  it('ES10 – guide mentions eurlex_sparql and its CDM cheat sheet', () => {
+    expect(guideSource).toContain('eurlex_sparql')
+    expect(guideSource).toContain('CDM cheat sheet')
+    // Core properties the escape hatch needs, extracted from the client.
+    expect(guideSource).toContain('cdm:resource_legal_id_celex')
+    expect(guideSource).toContain('cdm:expression_uses_language')
+    expect(guideSource).toContain('cdm:case-law_ecli')
+  })
 })
