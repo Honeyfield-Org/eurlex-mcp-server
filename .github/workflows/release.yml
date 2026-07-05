@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
 
     steps:
       - name: Checkout repository
@@ -41,24 +40,67 @@ jobs:
         with:
           generate_release_notes: true
 
-      # Trusted Publishing (OIDC) requires npm >= 11.5.1; Node 22 bundles npm 10
-      - name: Update npm for trusted publishing
+  publish-npm:
+    name: Publish to npm
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      # No registry-url here: setup-node would write an .npmrc authToken
+      # placeholder, which makes the publish send a dummy token instead of
+      # attempting the OIDC exchange.
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Trusted publishing requires npm >= 11.5.1; Node 22 ships npm 10.
+      - name: Update npm CLI
         run: npm install -g npm@latest
 
-      # Auth via npm Trusted Publishing (OIDC, id-token: write) — no token needed
+      # Auth via npm Trusted Publishing (OIDC) — no NPM_TOKEN needed. The
+      # trusted publisher for this repo/workflow is configured on npmjs.com.
+      # Skips when the version is already on the registry so tag re-runs
+      # stay idempotent. prepublishOnly runs check + build via pnpm.
       - name: Publish to npm
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "eurlex-mcp-server@$VERSION" version > /dev/null 2>&1; then
+            echo "eurlex-mcp-server@$VERSION already published — skipping"
+            exit 0
+          fi
+          npm publish --provenance --access public
 
-  deploy-lightsail:
-    name: Deploy to Lightsail
+  build-image:
+    name: Build and push image
     needs: release
     runs-on: ubuntu-latest
     env:
       AWS_REGION: eu-central-1
-      SERVICE_NAME: eurlex-mcp
+      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+      ECR_REPO: honeyfield/eurlex-mcp
+    outputs:
+      version: ${{ steps.v.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Compute version from tag
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -67,39 +109,25 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install Lightsail plugin
+      - name: Login to ECR
         run: |
-          curl -s "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" \
-            -o /usr/local/bin/lightsailctl && chmod +x /usr/local/bin/lightsailctl
+          aws ecr get-login-password --region "$AWS_REGION" | \
+            docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-      - name: Build and push image
+      - name: Build and push
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
-          docker build --platform linux/amd64 -t $SERVICE_NAME .
-          aws lightsail push-container-image \
-            --service-name $SERVICE_NAME \
-            --label $SERVICE_NAME \
-            --image $SERVICE_NAME:latest \
-            --region $AWS_REGION 2>&1 | tee push-output.txt
+          docker build \
+            -t "$ECR_REGISTRY/$ECR_REPO:$VERSION" \
+            -t "$ECR_REGISTRY/$ECR_REPO:latest" .
+          docker push "$ECR_REGISTRY/$ECR_REPO:$VERSION"
+          docker push "$ECR_REGISTRY/$ECR_REPO:latest"
 
-      - name: Deploy
-        run: |
-          IMAGE=$(sed -n 's/.*"\(:[^"]*\)".*/\1/p' push-output.txt)
-          if [ -z "$IMAGE" ]; then
-            echo "Failed to parse image name from push output"
-            exit 1
-          fi
-          aws lightsail create-container-service-deployment \
-            --service-name $SERVICE_NAME \
-            --region $AWS_REGION \
-            --containers "{
-              \"$SERVICE_NAME\": {
-                \"image\": \"$IMAGE\",
-                \"ports\": {\"3001\": \"HTTP\"},
-                \"environment\": {}
-              }
-            }" \
-            --public-endpoint "{
-              \"containerName\": \"$SERVICE_NAME\",
-              \"containerPort\": 3001,
-              \"healthCheck\": {\"path\": \"/health\", \"intervalSeconds\": 30}
-            }"
+  deploy-gateway:
+    name: Deploy
+    needs: build-image
+    uses: ./.github/workflows/deploy.yml
+    with:
+      image_tag: ${{ needs.build-image.outputs.version }}
+    secrets: inherit

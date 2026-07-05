@@ -7,11 +7,12 @@ import { registerEurovocTool } from './tools/eurovoc.js';
 import { registerFetchTool } from './tools/fetch.js';
 import { registerMetadataTool } from './tools/metadata.js';
 import { registerSearchTool } from './tools/search.js';
+import { VERSION } from './version.js';
 
 export function createServer(): McpServer {
   const server = new McpServer({
     name: 'eurlex-mcp-server',
-    version: '1.0.0',
+    version: VERSION,
   });
 
   registerSearchTool(server);
