@@ -72,3 +72,20 @@ export const fetchInputSchema = fetchSchema.superRefine((data, ctx) => {
     });
   }
 });
+
+/** Output of eurlex_fetch: the sliced document text plus pagination accounting. */
+export const fetchOutputSchema = z.object({
+  celex_id: z.string().describe('The resolved CELEX ID the text was fetched for'),
+  language: z.string().describe('Cellar 3-letter language code of the text'),
+  content: z.string().describe('The document text in the requested window/format'),
+  truncated: z.boolean().describe('True when more text remains beyond this window'),
+  returned_chars: z.number().int().describe('Length of `content`'),
+  total_chars: z.number().int().describe('Length of the full processed document'),
+  offset: z.number().int().describe('The offset this window was sliced from'),
+  next_offset: z
+    .number()
+    .int()
+    .nullable()
+    .describe('Offset to request next, or null when there is no more content'),
+  source_url: z.string().describe('Cellar REST URL of the fetched resource'),
+});

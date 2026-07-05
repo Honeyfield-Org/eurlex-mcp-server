@@ -2,10 +2,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { EURLEX_BASE } from '../constants.js';
 import { LANGUAGE_ISO_MAP } from '../languages.js';
-import { summarySchema } from '../schemas/summarySchema.js';
+import { summarySchema, summaryOutputSchema } from '../schemas/summarySchema.js';
 import { sharedCellarClient } from '../services/cellarClient.js';
-import type { SummaryMeta, SummaryResult } from '../types.js';
-import { processContent, toolError } from '../utils.js';
+import type { SummaryMeta, SummaryNotFound, SummaryResult, ToolResult } from '../types.js';
+import { processContent, toCallToolResult, toolError } from '../utils.js';
 
 /** Cap on the `other_summaries` list so the response stays compact for the rare
  *  acts (treaty articles, framework communications) that have dozens of summaries. */
@@ -32,11 +32,14 @@ export async function handleEurlexSummary(input: {
   language: string;
   max_chars: number;
   offset: number;
-}): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
+}): Promise<ToolResult<SummaryResult | SummaryNotFound>> {
   try {
     const summaries = await sharedCellarClient.findSummaries(input.celex_id, input.language);
 
     if (summaries.length === 0) {
+      // Not an error — a legitimate "no summary" outcome. total_summaries:0 is
+      // the discriminator; the summary-content fields are absent (optional in
+      // summaryOutputSchema), so this still satisfies the output schema.
       return {
         content: [
           {
@@ -48,6 +51,11 @@ export async function handleEurlexSummary(input: {
               'eurlex_metadata for structured metadata.',
           },
         ],
+        structuredContent: {
+          celex_id: input.celex_id,
+          language: input.language,
+          total_summaries: 0,
+        },
       };
     }
 
@@ -92,6 +100,7 @@ export async function handleEurlexSummary(input: {
 
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+      structuredContent: result,
     };
   } catch (error) {
     return toolError(error);
@@ -99,17 +108,21 @@ export async function handleEurlexSummary(input: {
 }
 
 export function registerSummaryTool(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'eurlex_summary',
-    'Returns the EU\'s official plain-language summary (LEGISSUM) of a legal act — a short editorial overview written for non-lawyers ("what is the aim", "key points", "from when does it apply"), NOT the binding legal text. Input is the act\'s celex_id (e.g. "32016R0679" for the GDPR, "32022R2065" for the Digital Services Act) and a language (any of the 24 official EU languages; summaries are usually available in all of them). Output is the summary text (plain, HTML stripped) plus its LEGISSUM id, title, last-update date, an obsolete flag, and source_url (the EUR-Lex summary page). Long summaries paginate via max_chars/offset exactly like eurlex_fetch — pass the previous response\'s next_offset to continue. Several thousand major acts have a summary; many acts have none (you get a clear "no summary" message). When an act has several summaries the most current non-obsolete one is returned and the rest are listed in other_summaries. For the full legal text use eurlex_fetch; for structured metadata use eurlex_metadata.',
-    summarySchema.shape,
     {
-      title: 'Get the plain-language summary of an EU act',
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
+      description:
+        'Returns the EU\'s official plain-language summary (LEGISSUM) of a legal act — a short editorial overview written for non-lawyers ("what is the aim", "key points", "from when does it apply"), NOT the binding legal text. Input is the act\'s celex_id (e.g. "32016R0679" for the GDPR, "32022R2065" for the Digital Services Act) and a language (any of the 24 official EU languages; summaries are usually available in all of them). Output is the summary text (plain, HTML stripped) plus its LEGISSUM id, title, last-update date, an obsolete flag, and source_url (the EUR-Lex summary page). Long summaries paginate via max_chars/offset exactly like eurlex_fetch — pass the previous response\'s next_offset to continue. Several thousand major acts have a summary; many acts have none (you get a clear "no summary" message). When an act has several summaries the most current non-obsolete one is returned and the rest are listed in other_summaries. For the full legal text use eurlex_fetch; for structured metadata use eurlex_metadata.',
+      inputSchema: summarySchema.shape,
+      outputSchema: summaryOutputSchema.shape,
+      annotations: {
+        title: 'Get the plain-language summary of an EU act',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
-    async (params) => handleEurlexSummary(params),
+    async (params) => toCallToolResult(await handleEurlexSummary(params)),
   );
 }

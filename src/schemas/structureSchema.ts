@@ -55,3 +55,32 @@ export const structureInputSchema = structureSchema.superRefine((data, ctx) => {
     });
   }
 });
+
+const outlineEntrySchema = z.object({
+  level: z
+    .number()
+    .int()
+    .describe('Nesting-depth hint: 1=part/title/annex, 2=chapter, 3=section, 4=article'),
+  label: z.string().describe('Normalized heading label, e.g. "Article 5", "CHAPTER I"'),
+  title: z.string().describe("The heading's subtitle, or '' when there is none"),
+  offset: z.number().int().describe('0-based char offset of the label in the plain text'),
+});
+
+/** Output of eurlex_structure: the document outline with plain-text offsets. */
+export const structureOutputSchema = z.object({
+  celex_id: z.string().describe('The resolved CELEX ID (echoed for the follow-up eurlex_fetch)'),
+  language: z.string(),
+  total_headings: z.number().int().describe('Total headings detected before the returned-list cap'),
+  returned: z.number().int().describe('Number of headings in `outline` (<= total_headings)'),
+  truncated: z.boolean().describe('True when `outline` was capped below total_headings'),
+  total_chars: z
+    .number()
+    .int()
+    .describe('Length of the plain text the offsets index into (matches eurlex_fetch total_chars)'),
+  outline: z.array(outlineEntrySchema).describe('Headings in document order'),
+  source_url: z.string(),
+  note: z
+    .string()
+    .optional()
+    .describe('Present only when no headings were found or the outline was truncated'),
+});

@@ -36,3 +36,21 @@ export const searchSchema = z
   .strict();
 
 export type SearchInput = z.infer<typeof searchSchema>;
+
+/**
+ * One search hit. Shared by eurlex_search and eurlex_by_eurovoc (both return the
+ * same result shape), so it lives here and is imported by eurovocSchema.
+ */
+export const searchResultSchema = z.object({
+  celex: z.string().describe('CELEX identifier of the act, e.g. "32024R1689"'),
+  title: z.string().describe('Act title in the requested language'),
+  date: z.string().describe('Document date (ISO YYYY-MM-DD), or "" when absent'),
+  type: z.string().describe('Resource type, e.g. "REG", "DIR", "DEC"'),
+  eurlex_url: z.string().describe('EUR-Lex page for the act'),
+});
+
+/** Output of eurlex_search: the hits plus their count. */
+export const searchOutputSchema = z.object({
+  results: z.array(searchResultSchema).describe('Matching acts, newest-first within the sample'),
+  total: z.number().int().describe('Number of results in `results`'),
+});

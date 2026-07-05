@@ -5,10 +5,10 @@ import {
   SPARQL_MAX_LIMIT,
   SPARQL_RESPONSE_CHAR_BUDGET,
 } from '../constants.js';
-import { sparqlSchema } from '../schemas/sparqlSchema.js';
+import { sparqlSchema, sparqlOutputSchema } from '../schemas/sparqlSchema.js';
 import { sharedCellarClient } from '../services/cellarClient.js';
-import type { SparqlRawResult } from '../types.js';
-import { toolError } from '../utils.js';
+import type { SparqlRawResult, ToolResult } from '../types.js';
+import { toCallToolResult, toolError } from '../utils.js';
 
 /**
  * SPARQL Update operations and the federated-query keyword we refuse. The endpoint
@@ -256,29 +256,36 @@ export function shapeSparqlResult(raw: unknown, limitAdded: boolean): SparqlRawR
 
 export async function handleEurlexSparql(input: {
   query: string;
-}): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
+}): Promise<ToolResult<SparqlRawResult>> {
   try {
     const { query, limitAdded } = validateAndPrepareSparql(input.query);
     const raw = await sharedCellarClient.executeRawSparql(query);
     const result = shapeSparqlResult(raw, limitAdded);
-    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+      structuredContent: result,
+    };
   } catch (error) {
     return toolError(error);
   }
 }
 
 export function registerSparqlTool(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'eurlex_sparql',
-    'Expert escape hatch: run a raw, read-only SPARQL 1.1 query directly against the EU Publications Office (Cellar) endpoint when the higher-level tools (eurlex_search, eurlex_metadata, eurlex_citations, eurlex_case_law, eurlex_transposition, eurlex_summary, …) cannot express what you need. Requires knowledge of the CDM ontology — READ THE eurlex_guide PROMPT FIRST for the property cheat sheet (celex, title, language, dates, citations, case law, transposition, summaries). Only SELECT and ASK are allowed; SPARQL Update (INSERT/DELETE/…) and federated SERVICE clauses are rejected before the query is sent. A SELECT with no top-level LIMIT gets LIMIT 50 appended (set limit_added); a top-level LIMIT above 100 is rejected. The response mirrors SPARQL JSON — vars + bindings for SELECT, boolean for ASK — plus row_count and a truncated flag (whole rows are dropped past ~40k characters). CELEX/ELI literals are typed xsd:string, so match them with FILTER(STR(?x) = "..."). Example: PREFIX cdm: <http://publications.europa.eu/ontology/cdm#> SELECT ?celex WHERE { ?w cdm:resource_legal_id_celex ?celex . FILTER(STR(?celex) = "32016R0679") } LIMIT 1',
-    sparqlSchema.shape,
     {
-      title: 'Run a raw read-only SPARQL query',
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
+      description:
+        'Expert escape hatch: run a raw, read-only SPARQL 1.1 query directly against the EU Publications Office (Cellar) endpoint when the higher-level tools (eurlex_search, eurlex_metadata, eurlex_citations, eurlex_case_law, eurlex_transposition, eurlex_summary, …) cannot express what you need. Requires knowledge of the CDM ontology — READ THE eurlex_guide PROMPT FIRST for the property cheat sheet (celex, title, language, dates, citations, case law, transposition, summaries). Only SELECT and ASK are allowed; SPARQL Update (INSERT/DELETE/…) and federated SERVICE clauses are rejected before the query is sent. A SELECT with no top-level LIMIT gets LIMIT 50 appended (set limit_added); a top-level LIMIT above 100 is rejected. The response mirrors SPARQL JSON — vars + bindings for SELECT, boolean for ASK — plus row_count and a truncated flag (whole rows are dropped past ~40k characters). CELEX/ELI literals are typed xsd:string, so match them with FILTER(STR(?x) = "..."). Example: PREFIX cdm: <http://publications.europa.eu/ontology/cdm#> SELECT ?celex WHERE { ?w cdm:resource_legal_id_celex ?celex . FILTER(STR(?celex) = "32016R0679") } LIMIT 1',
+      inputSchema: sparqlSchema.shape,
+      outputSchema: sparqlOutputSchema.shape,
+      annotations: {
+        title: 'Run a raw read-only SPARQL query',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
-    async (params) => handleEurlexSparql(params),
+    async (params) => toCallToolResult(await handleEurlexSparql(params)),
   );
 }

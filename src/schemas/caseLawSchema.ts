@@ -106,3 +106,18 @@ export const caseLawInputSchema = caseLawSchema.superRefine((data, ctx) => {
     });
   }
 });
+
+const caseLawEntrySchema = z.object({
+  celex: z.string().describe('Sector-6 CELEX of the ruling'),
+  ecli: z.string().describe('ECLI of the ruling, or "" when the work carries none'),
+  title: z.string(),
+  date: z.string().describe('Judgment date (ISO), or "" when absent'),
+  type: z.string().describe('Procedure type, e.g. "JUDG", "ORDER", "OPIN_AG"'),
+  eurlex_url: z.string(),
+});
+
+/** Output of eurlex_case_law: the matching rulings plus their count. */
+export const caseLawOutputSchema = z.object({
+  results: z.array(caseLawEntrySchema),
+  total: z.number().int().describe('Number of entries in `results`'),
+});

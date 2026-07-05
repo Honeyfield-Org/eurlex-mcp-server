@@ -1,3 +1,5 @@
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+
 /** HTML entity decodings applied after tag stripping. `&amp;` must run last so
  * an already-literal sequence like `&amp;lt;` (representing the text `&lt;`)
  * is not double-decoded into `<`. */
@@ -82,6 +84,24 @@ export function toolError(error: unknown): {
     content: [{ type: 'text' as const, text: `Error: ${message}` }],
     isError: true as const,
   };
+}
+
+/**
+ * Widens a handler's precisely-typed ToolResult to the SDK's CallToolResult at
+ * the registration boundary. Our result types are exact interfaces (so each
+ * handler body is type-checked against the shape its outputSchema declares), but
+ * a TS interface is not assignable to the SDK's `structuredContent`
+ * (`Record<string, unknown>`) — only object-literal types get an implicit index
+ * signature. This one documented widening cast at the boundary keeps the
+ * handler-side type-safety without loosening every result type. The runtime
+ * value is unchanged; validity is enforced by the registered outputSchema.
+ */
+export function toCallToolResult(result: {
+  content: { type: 'text'; text: string }[];
+  structuredContent?: unknown;
+  isError?: true;
+}): CallToolResult {
+  return result as unknown as CallToolResult;
 }
 
 export interface ProcessedContent {

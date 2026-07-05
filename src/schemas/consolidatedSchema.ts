@@ -99,3 +99,29 @@ export const consolidatedInputSchema = consolidatedSchema.superRefine((data, ctx
     });
   }
 });
+
+/** Output of eurlex_consolidated: the merged in-force text plus pagination/ELI info. */
+export const consolidatedOutputSchema = z.object({
+  doc_type: z.string(),
+  year: z.number().int(),
+  number: z.number().int(),
+  language: z.string(),
+  content: z.string().describe('The consolidated text in the requested window/format'),
+  truncated: z.boolean().describe('True when more text remains beyond this window'),
+  returned_chars: z.number().int().describe('Length of `content`'),
+  total_chars: z.number().int().describe('Length of the full processed document'),
+  offset: z.number().int().describe('The offset this window was sliced from'),
+  next_offset: z
+    .number()
+    .int()
+    .nullable()
+    .describe('Offset to request next, or null when there is no more content'),
+  eli_url: z.string().describe('ELI URL of the consolidated act'),
+  consolidated_celex: z
+    .string()
+    .describe('Resolved consolidated CELEX, e.g. "02016R0679-20160504"'),
+  consolidation_date: z
+    .string()
+    .nullable()
+    .describe('ISO date from the CELEX "-YYYYMMDD" suffix, or null when absent'),
+});

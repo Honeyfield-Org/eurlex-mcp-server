@@ -37,3 +37,24 @@ export const transpositionSchema = z
   .strict();
 
 export type TranspositionInput = z.infer<typeof transpositionSchema>;
+
+const transpositionEntrySchema = z.object({
+  country: z
+    .string()
+    .describe('Member state: 2-letter code when known, else the raw alpha-3 authority code'),
+  title: z.string().describe("National measure title in the member state's own language, or ''"),
+  date: z.string().describe("ISO date of the national measure, or '' when absent"),
+  celex: z.string().describe('Sector-7 NIM CELEX, e.g. "72022L2555DEU_202500123"'),
+  eurlex_url: z.string(),
+});
+
+/** Output of eurlex_transposition: the national measures plus count accounting. */
+export const transpositionOutputSchema = z.object({
+  celex_id: z.string().describe('The directive CELEX that was queried'),
+  results: z.array(transpositionEntrySchema),
+  returned: z.number().int().describe('Number of measures in `results` (<= limit)'),
+  total_found: z
+    .number()
+    .int()
+    .describe('Full number of matching measures; when > returned, `results` was truncated'),
+});

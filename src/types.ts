@@ -1,5 +1,18 @@
 import type { OutlineEntry } from './utils.js';
 
+/**
+ * Common shape a tool handler returns. `content` is the text block (JSON string
+ * for successful results, a friendly message for empty ones) kept as the
+ * human/fallback view. `structuredContent` is the machine-readable payload the
+ * tool's registered outputSchema validates — present on every non-error result,
+ * absent on errors (the SDK skips output validation when `isError` is set).
+ */
+export interface ToolResult<T> {
+  content: { type: 'text'; text: string }[];
+  structuredContent?: T;
+  isError?: true;
+}
+
 export interface SparqlQueryParams {
   query: string;
   resource_type: string;
@@ -211,6 +224,18 @@ export interface SummaryResult {
   other_summaries?: SummaryReference[];
   /** Human-readable EUR-Lex legislative-summary (LSU) page for the act. */
   source_url: string;
+}
+
+/**
+ * The eurlex_summary emission when no LEGISSUM summary exists for the act.
+ * `total_summaries` is 0; none of the summary-content fields are present. Shares
+ * `summaryOutputSchema` with the found case (SummaryResult), which is why the
+ * content fields there are optional.
+ */
+export interface SummaryNotFound {
+  celex_id: string;
+  language: string;
+  total_summaries: 0;
 }
 
 export interface StructureResult {

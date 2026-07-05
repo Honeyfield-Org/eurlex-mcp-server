@@ -55,3 +55,29 @@ export const metadataInputSchema = metadataSchema.superRefine((data, ctx) => {
     });
   }
 });
+
+/**
+ * Output of eurlex_metadata. Dates and in_force are nullable: Cellar frequently
+ * omits them, and date_end_of_validity is also nulled when it is the "9999-12-31"
+ * open-ended sentinel. The array fields are always present (empty when none).
+ */
+export const metadataOutputSchema = z.object({
+  celex_id: z.string(),
+  title: z.string(),
+  date_document: z.string().nullable().describe('ISO date, or null when absent'),
+  date_entry_into_force: z.string().nullable().describe('ISO date, or null when absent'),
+  date_end_of_validity: z
+    .string()
+    .nullable()
+    .describe('ISO date, or null when absent or the open-ended 9999-12-31 sentinel'),
+  in_force: z.boolean().nullable().describe('In-force status, or null when unknown'),
+  date_transposition: z.string().nullable().describe('ISO date, or null when absent'),
+  resource_type: z.string(),
+  authors: z.array(z.string()),
+  eurovoc_concepts: z.array(z.string()),
+  directory_codes: z
+    .array(z.string())
+    .describe('Directory-code entries as "{code}: {label}", or the bare code when unlabelled'),
+  legal_basis: z.array(z.string()).describe('CELEX IDs of the acts this act is based on'),
+  eurlex_url: z.string(),
+});

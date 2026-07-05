@@ -59,6 +59,20 @@ describe('Phase 5 – Smoke Tests', () => {
     expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_sparql', 'eurlex_structure', 'eurlex_summary', 'eurlex_transposition'])
   })
 
+  // Structured output: every tool advertises an outputSchema in tools/list, so
+  // clients know each result carries validatable structuredContent (Task 8).
+  it('V18b – every tool advertises an outputSchema in tools/list', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    expect(tools).toHaveLength(11)
+    for (const tool of tools) {
+      expect(tool.outputSchema, `${tool.name} has an outputSchema`).toBeDefined()
+      expect((tool.outputSchema as { type?: string }).type).toBe('object')
+    }
+  })
+
   // V20: Session-Management → factory creates independent servers per call
   it('V20 – factory creates independent server instances per call', async () => {
     const pair1 = await createTestPair()

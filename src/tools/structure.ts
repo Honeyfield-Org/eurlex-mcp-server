@@ -1,10 +1,14 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { CELLAR_REST_BASE } from '../constants.js';
-import { structureInputSchema, structureSchema } from '../schemas/structureSchema.js';
+import {
+  structureInputSchema,
+  structureSchema,
+  structureOutputSchema,
+} from '../schemas/structureSchema.js';
 import { sharedCellarClient } from '../services/cellarClient.js';
-import type { StructureResult } from '../types.js';
-import { parseOutline, stripHtml, toolError } from '../utils.js';
+import type { StructureResult, ToolResult } from '../types.js';
+import { parseOutline, stripHtml, toCallToolResult, toolError } from '../utils.js';
 
 /** Cap on outline entries returned; total_headings still reports the full count. */
 const OUTLINE_MAX_ENTRIES = 300;
@@ -14,7 +18,7 @@ export async function handleEurlexStructure(input: {
   eli?: string;
   oj_ref?: string;
   language: string;
-}): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
+}): Promise<ToolResult<StructureResult>> {
   try {
     // `server.tool(structureSchema.shape)` strips the object-level XOR refinement;
     // re-parse against the refined schema so "exactly one identifier" is enforced.
@@ -53,6 +57,7 @@ export async function handleEurlexStructure(input: {
 
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+      structuredContent: result,
     };
   } catch (error) {
     return toolError(error);
@@ -60,17 +65,21 @@ export async function handleEurlexStructure(input: {
 }
 
 export function registerStructureTool(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'eurlex_structure',
-    'Returns the outline (table of contents) of an EU legal act — its chapters, sections, articles and annexes — each with a character offset into the document\'s plain text. Use it as a map for targeted reading: read an article\'s offset from the outline, then call eurlex_fetch(celex_id, format:"plain", offset, max_chars) with that offset to jump straight to that article instead of paging from the top of a long act. Identify the act by celex_id (e.g. "32024R1689"), eli, or oj_ref — provide exactly one. Each outline entry has: level (1=part/title/annex, 2=chapter, 3=section, 4=article), label (e.g. "Article 5", "CHAPTER III"), title (the heading\'s subtitle, e.g. "Prohibited AI practices"), and offset. total_headings is the full count; the returned list is capped at 300 for very large acts (truncated=true). Heading offsets are specific to the chosen language and to plain (tag-stripped) text — pass the SAME language to the follow-up eurlex_fetch call and keep format:"plain". Heading recognition covers English, German and French documents.',
-    structureSchema.shape,
     {
-      title: 'Outline an EU act and locate its articles',
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
+      description:
+        'Returns the outline (table of contents) of an EU legal act — its chapters, sections, articles and annexes — each with a character offset into the document\'s plain text. Use it as a map for targeted reading: read an article\'s offset from the outline, then call eurlex_fetch(celex_id, format:"plain", offset, max_chars) with that offset to jump straight to that article instead of paging from the top of a long act. Identify the act by celex_id (e.g. "32024R1689"), eli, or oj_ref — provide exactly one. Each outline entry has: level (1=part/title/annex, 2=chapter, 3=section, 4=article), label (e.g. "Article 5", "CHAPTER III"), title (the heading\'s subtitle, e.g. "Prohibited AI practices"), and offset. total_headings is the full count; the returned list is capped at 300 for very large acts (truncated=true). Heading offsets are specific to the chosen language and to plain (tag-stripped) text — pass the SAME language to the follow-up eurlex_fetch call and keep format:"plain". Heading recognition covers English, German and French documents.',
+      inputSchema: structureSchema.shape,
+      outputSchema: structureOutputSchema.shape,
+      annotations: {
+        title: 'Outline an EU act and locate its articles',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
-    async (params) => handleEurlexStructure(params),
+    async (params) => toCallToolResult(await handleEurlexStructure(params)),
   );
 }

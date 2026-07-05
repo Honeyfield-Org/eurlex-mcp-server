@@ -1,15 +1,20 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { metadataSchema, metadataInputSchema } from '../schemas/metadataSchema.js';
+import {
+  metadataSchema,
+  metadataInputSchema,
+  metadataOutputSchema,
+} from '../schemas/metadataSchema.js';
 import { sharedCellarClient } from '../services/cellarClient.js';
-import { toolError } from '../utils.js';
+import type { MetadataResult, ToolResult } from '../types.js';
+import { toCallToolResult, toolError } from '../utils.js';
 
 export async function handleEurlexMetadata(input: {
   celex_id?: string;
   eli?: string;
   oj_ref?: string;
   language: string;
-}): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
+}): Promise<ToolResult<MetadataResult>> {
   try {
     // `server.tool(metadataSchema.shape)` registers only the per-field shape; the
     // "exactly one of celex_id/eli/oj_ref" XOR is an object-level refinement that
@@ -23,6 +28,7 @@ export async function handleEurlexMetadata(input: {
     const result = await sharedCellarClient.metadataQuery(celexId, parsed.language);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+      structuredContent: result,
     };
   } catch (error) {
     return toolError(error);
@@ -30,17 +36,21 @@ export async function handleEurlexMetadata(input: {
 }
 
 export function registerMetadataTool(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'eurlex_metadata',
-    'Fetches metadata for an EU legal act: document/entry-into-force/end-of-validity dates, in-force status, authors, legal basis (CELEX IDs of the acts it is based on), EuroVoc descriptors, and directory codes. Identify the act by celex_id (e.g. "32024R1689"), by eli (e.g. "reg/2016/679" or a full ELI URL), or by oj_ref (post-2023 Official Journal reference, e.g. "OJ:L_202401689") — provide exactly one.',
-    metadataSchema.shape,
     {
-      title: 'Get EU legal act metadata',
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
+      description:
+        'Fetches metadata for an EU legal act: document/entry-into-force/end-of-validity dates, in-force status, authors, legal basis (CELEX IDs of the acts it is based on), EuroVoc descriptors, and directory codes. Identify the act by celex_id (e.g. "32024R1689"), by eli (e.g. "reg/2016/679" or a full ELI URL), or by oj_ref (post-2023 Official Journal reference, e.g. "OJ:L_202401689") — provide exactly one.',
+      inputSchema: metadataSchema.shape,
+      outputSchema: metadataOutputSchema.shape,
+      annotations: {
+        title: 'Get EU legal act metadata',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
-    async (params) => handleEurlexMetadata(params),
+    async (params) => toCallToolResult(await handleEurlexMetadata(params)),
   );
 }

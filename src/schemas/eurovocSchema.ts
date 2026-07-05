@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { RESOURCE_TYPES } from '../constants.js';
 import { LANGUAGE_ENUM } from '../languages.js';
 
+import { searchResultSchema } from './searchSchema.js';
+
 export const eurovocSchema = z
   .object({
     concept: z
@@ -21,3 +23,9 @@ export const eurovocSchema = z
   .strict();
 
 export type EurovocInput = z.infer<typeof eurovocSchema>;
+
+/** Output of eurlex_by_eurovoc: the hits (same shape as eurlex_search) plus count. */
+export const eurovocOutputSchema = z.object({
+  results: z.array(searchResultSchema).describe('Acts tagged with the EuroVoc concept'),
+  total: z.number().int().describe('Number of results in `results`'),
+});

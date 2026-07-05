@@ -7,7 +7,9 @@ vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
   McpServer: vi.fn().mockImplementation(() => ({
     connect: vi.fn(),
     tool: vi.fn(),
+    registerTool: vi.fn(),
     prompt: vi.fn(),
+    registerPrompt: vi.fn(),
   })),
 }))
 
@@ -52,6 +54,10 @@ vi.mock('../src/tools/structure.js', () => ({
 
 vi.mock('../src/tools/summary.js', () => ({
   registerSummaryTool: vi.fn(),
+}))
+
+vi.mock('../src/tools/sparql.js', () => ({
+  registerSparqlTool: vi.fn(),
 }))
 
 vi.mock('../src/prompts/guide.js', () => ({
@@ -175,5 +181,14 @@ describe('createServer()', () => {
     createServer()
 
     expect(registerSummaryTool).toHaveBeenCalledOnce()
+  })
+
+  it('S13 – createServer calls registerSparqlTool', async () => {
+    const { registerSparqlTool } = await import('../src/tools/sparql.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerSparqlTool).toHaveBeenCalledOnce()
   })
 })

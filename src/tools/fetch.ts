@@ -1,10 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { CELLAR_REST_BASE } from '../constants.js';
-import { fetchSchema, fetchInputSchema } from '../schemas/fetchSchema.js';
+import { fetchSchema, fetchInputSchema, fetchOutputSchema } from '../schemas/fetchSchema.js';
 import { sharedCellarClient } from '../services/cellarClient.js';
-import type { FetchResult } from '../types.js';
-import { processContent, toolError } from '../utils.js';
+import type { FetchResult, ToolResult } from '../types.js';
+import { processContent, toCallToolResult, toolError } from '../utils.js';
 
 export async function handleEurlexFetch(input: {
   celex_id?: string;
@@ -14,7 +14,7 @@ export async function handleEurlexFetch(input: {
   format: 'plain' | 'xhtml';
   max_chars: number;
   offset: number;
-}): Promise<{ content: { type: 'text'; text: string }[]; isError?: true }> {
+}): Promise<ToolResult<FetchResult>> {
   try {
     // `server.tool(fetchSchema.shape)` registers only the per-field shape; the
     // "exactly one of celex_id/eli/oj_ref" XOR is an object-level refinement that
@@ -46,12 +46,8 @@ export async function handleEurlexFetch(input: {
     };
 
     return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(result),
-        },
-      ],
+      content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+      structuredContent: result,
     };
   } catch (error) {
     return toolError(error);
@@ -59,17 +55,21 @@ export async function handleEurlexFetch(input: {
 }
 
 export function registerFetchTool(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'eurlex_fetch',
-    'Fetches the full text of an EU legal act. Identify it by celex_id (e.g. "32024R1689"), by eli (e.g. "reg/2016/679" or a full ELI URL), or by oj_ref (post-2023 Official Journal reference, e.g. "OJ:L_202401689") — provide exactly one. Paginate long documents with offset and max_chars: pass the previous response\'s next_offset to continue reading until it is null.',
-    fetchSchema.shape,
     {
-      title: 'Fetch EU legal act full text',
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
+      description:
+        'Fetches the full text of an EU legal act. Identify it by celex_id (e.g. "32024R1689"), by eli (e.g. "reg/2016/679" or a full ELI URL), or by oj_ref (post-2023 Official Journal reference, e.g. "OJ:L_202401689") — provide exactly one. Paginate long documents with offset and max_chars: pass the previous response\'s next_offset to continue reading until it is null.',
+      inputSchema: fetchSchema.shape,
+      outputSchema: fetchOutputSchema.shape,
+      annotations: {
+        title: 'Fetch EU legal act full text',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
-    async (params) => handleEurlexFetch(params),
+    async (params) => toCallToolResult(await handleEurlexFetch(params)),
   );
 }
