@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SPARQL_ENDPOINT, CELLAR_REST_BASE } from '../src/constants.js'
+import { SPARQL_ENDPOINT } from '../src/constants.js'
 import { CellarClient, escapeSparqlString } from '../src/services/cellarClient.js'
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { createServer } from '../../src/server.js'
 import { CellarClient, escapeSparqlString } from '../../src/services/cellarClient.js'
-import { SPARQL_ENDPOINT, CELLAR_REST_BASE } from '../../src/constants.js'
+import { SPARQL_ENDPOINT } from '../../src/constants.js'
 
 // ---------------------------------------------------------------------------
 // Helper: spin up a server + client pair over in-memory transport
@@ -118,6 +118,7 @@ describe('Phase 5 Eval – Validation Matrix', () => {
         language: 'DEU',
         format: 'xhtml',
         max_chars: 20_000,
+        offset: 0,
       })
 
       const parsed = JSON.parse(result.content[0].text)
@@ -133,6 +134,7 @@ describe('Phase 5 Eval – Validation Matrix', () => {
         language: 'DEU',
         format: 'xhtml',
         max_chars: 20_000,
+        offset: 0,
       })
 
       expect(result.isError).toBe(true)
@@ -250,6 +252,7 @@ describe('Phase 5 Eval – Validation Matrix', () => {
         language: 'DEU',
         format: 'plain',
         max_chars: 20_000,
+        offset: 0,
       })
 
       const parsed = JSON.parse(result.content[0].text)
