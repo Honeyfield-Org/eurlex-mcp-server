@@ -6,6 +6,9 @@
  */
 
 import { CellarClient } from '../../src/services/cellarClient.js'
+import { handleEurlexStructure } from '../../src/tools/structure.js'
+import type { StructureResult } from '../../src/types.js'
+import { parseOutline, processContent, stripHtml } from '../../src/utils.js'
 
 const client = new CellarClient()
 
@@ -279,5 +282,37 @@ describe('Phase 5 – Live Validation', () => {
       expect(r.celex).toMatch(/^72022L2555AUT_/)
     }
     expect(result.total_found).toBe(result.returned)
+  }, TIMEOUT)
+
+  // ST-LIVE-1 (Task 5): the offset↔fetch coupling holds against the LIVE document.
+  // Outline the AI Act, take Article 5's offset, and prove processContent (the exact
+  // pipeline eurlex_fetch(format:"plain") uses) begins at the Article 5 heading.
+  it('ST-LIVE-1: AI Act outline’s "Article 5" offset makes plain-text fetch start at Article 5', async () => {
+    const raw = await client.fetchDocument('32024R1689', 'ENG')
+    const plain = stripHtml(raw)
+    const { entries, total } = parseOutline(plain)
+
+    expect(total).toBeGreaterThan(50) // the AI Act has ~150 headings
+    const art5 = entries.find((e) => e.label === 'Article 5')
+    expect(art5).toBeDefined()
+
+    const fetched = processContent(raw, 'plain', 500, art5!.offset)
+    expect(fetched.content.replace(/\u00A0/g, ' ')).toMatch(/^Article 5\s+Prohibited AI practices/)
+    // total_chars from structure's stripHtml matches what fetch reports.
+    expect(plain.length).toBe(fetched.total_chars)
+  }, TIMEOUT)
+
+  // ST-LIVE-2 (Task 5): the tool end-to-end via an ELI identifier — resolves the GDPR
+  // and returns an outline that includes Article 5, exercising resolveCelexId +
+  // fetchDocument + parseOutline through the real handler.
+  it('ST-LIVE-2: handleEurlexStructure(eli) outlines the GDPR resolved from its ELI', async () => {
+    const res = await handleEurlexStructure({ eli: 'reg/2016/679', language: 'ENG' })
+    expect(res.isError).toBeFalsy()
+
+    const out = JSON.parse(res.content[0].text) as StructureResult
+    expect(out.celex_id).toBe('32016R0679')
+    expect(out.total_headings).toBeGreaterThan(50)
+    expect(out.outline.some((e) => e.label === 'Article 5')).toBe(true)
+    expect(out.total_chars).toBeGreaterThan(10_000)
   }, TIMEOUT)
 })

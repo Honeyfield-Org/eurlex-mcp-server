@@ -1,3 +1,5 @@
+import type { OutlineEntry } from './utils.js';
+
 export interface SparqlQueryParams {
   query: string;
   resource_type: string;
@@ -152,6 +154,28 @@ export interface TranspositionResult {
   returned: number;
   /** Full number of matching measures; when > returned, `results` was truncated to limit. */
   total_found: number;
+}
+
+export interface StructureResult {
+  /** The resolved CELEX ID (echoed so the follow-up eurlex_fetch call is unambiguous). */
+  celex_id: string;
+  language: string;
+  /** Total headings detected in the document (before the returned-list cap). */
+  total_headings: number;
+  /** Number of headings in `outline` (<= total_headings; capped for very large acts). */
+  returned: number;
+  /** True when `outline` was capped below total_headings. */
+  truncated: boolean;
+  /**
+   * Length of the processed plain text — the same total_chars eurlex_fetch reports
+   * for format:"plain". Offsets in `outline` index into this text.
+   */
+  total_chars: number;
+  /** Chapters/sections/articles/annexes with their plain-text offsets, in document order. */
+  outline: OutlineEntry[];
+  source_url: string;
+  /** Present only when no headings were detected — explains why and what to try. */
+  note?: string;
 }
 
 export interface ConsolidatedResult {

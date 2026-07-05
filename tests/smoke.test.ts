@@ -53,10 +53,10 @@ describe('Phase 5 – Smoke Tests', () => {
     pairs.push(pair)
 
     const { tools } = await pair.client.listTools()
-    expect(tools).toHaveLength(8)
+    expect(tools).toHaveLength(9)
 
     const toolNames = tools.map((t) => t.name).sort()
-    expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_transposition'])
+    expect(toolNames).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_structure', 'eurlex_transposition'])
   })
 
   // V20: Session-Management → factory creates independent servers per call
@@ -69,8 +69,8 @@ describe('Phase 5 – Smoke Tests', () => {
     const { tools: tools1 } = await pair1.client.listTools()
     const { tools: tools2 } = await pair2.client.listTools()
 
-    expect(tools1.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_transposition'])
-    expect(tools2.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_transposition'])
+    expect(tools1.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_structure', 'eurlex_transposition'])
+    expect(tools2.map((t) => t.name).sort()).toEqual(['eurlex_by_eurovoc', 'eurlex_case_law', 'eurlex_citations', 'eurlex_consolidated', 'eurlex_fetch', 'eurlex_metadata', 'eurlex_search', 'eurlex_structure', 'eurlex_transposition'])
 
     // They should be distinct object instances
     expect(pair1.server).not.toBe(pair2.server)
@@ -211,6 +211,24 @@ describe('Phase 5 – Smoke Tests', () => {
     expect(transposition?.annotations?.openWorldHint).toBe(true)
     expect(transposition?.description).toContain('directive')
     expect(transposition?.description).toContain('NIM')
+  })
+
+  it('eurlex_structure has title, full annotation set, and a self-contained description', async () => {
+    const pair = await createTestPair()
+    pairs.push(pair)
+
+    const { tools } = await pair.client.listTools()
+    const structure = tools.find((t) => t.name === 'eurlex_structure')
+
+    expect(structure?.annotations).toBeDefined()
+    expect(structure?.annotations?.title).toBe('Outline an EU act and locate its articles')
+    expect(structure?.annotations?.readOnlyHint).toBe(true)
+    expect(structure?.annotations?.destructiveHint).toBe(false)
+    expect(structure?.annotations?.idempotentHint).toBe(true)
+    expect(structure?.annotations?.openWorldHint).toBe(true)
+    // Description explains the structure → offset → fetch workflow.
+    expect(structure?.description).toContain('offset')
+    expect(structure?.description).toContain('eurlex_fetch')
   })
 
   // V22: eurlex_guide Prompt abrufbar → server has eurlex_guide prompt registered

@@ -46,6 +46,10 @@ vi.mock('../src/tools/transposition.js', () => ({
   registerTranspositionTool: vi.fn(),
 }))
 
+vi.mock('../src/tools/structure.js', () => ({
+  registerStructureTool: vi.fn(),
+}))
+
 vi.mock('../src/prompts/guide.js', () => ({
   registerGuidePrompt: vi.fn(),
 }))
@@ -149,5 +153,14 @@ describe('createServer()', () => {
     createServer()
 
     expect(registerTranspositionTool).toHaveBeenCalledOnce()
+  })
+
+  it('S11 – createServer calls registerStructureTool', async () => {
+    const { registerStructureTool } = await import('../src/tools/structure.js')
+    const { createServer } = await import('../src/server.js')
+
+    createServer()
+
+    expect(registerStructureTool).toHaveBeenCalledOnce()
   })
 })

@@ -117,3 +117,177 @@ export function processContent(
   const next_offset = truncated ? offset + returned_chars : null;
   return { content, truncated, returned_chars, total_chars, offset, next_offset };
 }
+
+/** One heading of a document's outline. */
+export interface OutlineEntry {
+  /**
+   * Nesting-depth hint derived from the heading kind:
+   * 1 = part / title / annex (top-level divisions), 2 = chapter, 3 = section,
+   * 4 = article. Not a strict tree — a compact ordering cue for rendering.
+   */
+  level: number;
+  /** Normalized heading label, e.g. "Article 5", "CHAPTER I", "ANNEX III". */
+  label: string;
+  /** The heading's subtitle (the following non-empty line), or '' when there is none. */
+  title: string;
+  /**
+   * 0-based character offset of the label's first character WITHIN the processed
+   * plain text — i.e. within `stripHtml(raw)`, which is exactly the string
+   * `processContent(raw, 'plain', …)` slices. So `eurlex_fetch(celex, format:
+   * 'plain', offset)` starts reading precisely at this heading. This coupling is
+   * correct by construction: the parser measures offsets in the same string the
+   * fetch tool slices.
+   */
+  offset: number;
+}
+
+export interface Outline {
+  /** Headings in document order, capped at `maxEntries`. */
+  entries: OutlineEntry[];
+  /** Total headings detected before the cap. */
+  total: number;
+  /** True when `entries` was truncated to `maxEntries` (total > maxEntries). */
+  truncated: boolean;
+}
+
+/**
+ * Whitespace inside/around a heading line. EUR-Lex OJ markup separates a label
+ * from its designator with either an ASCII space (e.g. GDPR "Article 5") or a
+ * literal U+00A0 no-break space (e.g. AI Act renders "Article 5" with U+00A0) — stripHtml
+ * collapses neither U+00A0 (its `[ \t]+` collapse is ASCII-only). Both must be
+ * accepted everywhere a heading is matched.
+ */
+const HWS = ' \\t\\u00A0';
+const ROMAN = '[IVXLCDM]+';
+
+/**
+ * Ordered heading rules. Each matches a WHOLE plain-text line — the line must be
+ * nothing but the marker word plus its designator — which is what distinguishes a
+ * real heading (its own line in the stripped text) from a mid-sentence
+ * cross-reference like "as referred to in Article 5(1)". First match wins;
+ * the keyword sets are disjoint so order only fixes the reported `level`.
+ *
+ * Keywords cover English, German and French — the languages whose structural
+ * vocabulary this server verifies. A document fetched in another language yields
+ * a sparse or empty outline (still offset-correct); fetch in English for the
+ * fullest structure. Casing variants ("SECTION"/"Section") are listed explicitly
+ * rather than using the `i` flag, so a word is only ever a heading in a form
+ * EUR-Lex actually emits.
+ *
+ * Capture groups (uniform across rules): 1 = leading whitespace, 2 = keyword,
+ * 3 = designator (undefined only for a bare "ANNEX").
+ */
+interface HeadingRule {
+  level: number;
+  re: RegExp;
+}
+const HEADING_RULES: HeadingRule[] = [
+  {
+    level: 1,
+    re: new RegExp(
+      `^([${HWS}]*)(PART|Part|TEIL|Teil|PARTIE|Partie)[${HWS}]+(${ROMAN}|\\d+)[${HWS}]*$`,
+    ),
+  },
+  {
+    level: 1,
+    re: new RegExp(
+      `^([${HWS}]*)(TITLE|Title|TITEL|Titel|TITRE|Titre)[${HWS}]+(${ROMAN}|\\d+)[${HWS}]*$`,
+    ),
+  },
+  {
+    level: 2,
+    re: new RegExp(
+      `^([${HWS}]*)(CHAPTER|Chapter|KAPITEL|Kapitel|CHAPITRE|Chapitre)[${HWS}]+(${ROMAN}|\\d+)[${HWS}]*$`,
+    ),
+  },
+  {
+    level: 3,
+    re: new RegExp(
+      `^([${HWS}]*)(SECTION|Section|ABSCHNITT|Abschnitt)[${HWS}]+(\\d+|${ROMAN})[${HWS}]*$`,
+    ),
+  },
+  {
+    level: 4,
+    re: new RegExp(`^([${HWS}]*)(Article|article|Artikel)[${HWS}]+(\\d+[a-z]?)[${HWS}]*$`),
+  },
+  {
+    level: 1,
+    re: new RegExp(
+      `^([${HWS}]*)(ANNEX|Annex|ANHANG|Anhang|ANNEXE|Annexe)(?:[${HWS}]+(${ROMAN}|\\d+|[A-Z]))?[${HWS}]*$`,
+    ),
+  },
+];
+
+interface MatchedHeading {
+  level: number;
+  label: string;
+  /** Offset of the label's first char within its line (length of leading whitespace). */
+  labelStart: number;
+}
+
+/** Tests a single plain-text line against the heading rules; null when it is not a heading. */
+function matchHeading(line: string): MatchedHeading | null {
+  for (const { level, re } of HEADING_RULES) {
+    const m = re.exec(line);
+    if (!m) continue;
+    const [, lead, keyword, designator] = m;
+    const label = designator ? `${keyword} ${designator}` : keyword;
+    return { level, label, labelStart: lead.length };
+  }
+  return null;
+}
+
+/**
+ * The subtitle of a heading: the next non-empty line, unless that line is itself
+ * a heading (then there is no subtitle). Scans a few lines ahead to skip the
+ * blank lines OJ markup leaves between a heading and its title. U+00A0 is
+ * normalized to a space and the result capped so a title-less heading followed
+ * by a long body paragraph does not drag the whole paragraph into the outline.
+ */
+function subtitleAfter(lines: string[], i: number): string {
+  for (let j = i + 1; j <= i + 4 && j < lines.length; j++) {
+    const norm = lines[j]
+      .replace(/\u00A0/g, ' ')
+      .replace(/[ \t]+/g, ' ')
+      .trim();
+    if (!norm) continue;
+    if (matchHeading(lines[j])) return '';
+    return norm.length > 160 ? norm.slice(0, 160).trimEnd() : norm;
+  }
+  return '';
+}
+
+/**
+ * Extracts a document outline (chapters, sections, articles, annexes, …) from
+ * ALREADY-PROCESSED plain text — the output of `stripHtml`, i.e. the exact string
+ * `processContent(raw, 'plain', …)` slices. Heading offsets are therefore
+ * positions the `eurlex_fetch` plain-text pagination can be steered to directly
+ * (see OutlineEntry.offset). Detection is regex-on-plain-text (not XHTML-class
+ * mapping) precisely so offsets are correct by construction rather than mapped
+ * across the strip pipeline's entity-decode / whitespace-collapse steps.
+ *
+ * `maxEntries` caps the returned list (the outline stays compact for huge acts);
+ * `total` still reports the full count and `truncated` flags the cap.
+ */
+export function parseOutline(plainText: string, maxEntries = 300): Outline {
+  const lines = plainText.split('\n');
+  const entries: OutlineEntry[] = [];
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const h = matchHeading(line);
+    if (h) {
+      entries.push({
+        level: h.level,
+        label: h.label,
+        title: subtitleAfter(lines, i),
+        offset: offset + h.labelStart,
+      });
+    }
+    // split('\n') consumed exactly one '\n' (1 char) after each line but the last.
+    offset += line.length + 1;
+  }
+  const total = entries.length;
+  const truncated = total > maxEntries;
+  return { entries: truncated ? entries.slice(0, maxEntries) : entries, total, truncated };
+}
