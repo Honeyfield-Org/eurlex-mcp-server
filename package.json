@@ -1,6 +1,6 @@
 {
   "name": "eurlex-mcp-server",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "MCP Server for EU law via EUR-Lex Cellar API — search, fetch, and analyze EU regulations, directives, and court decisions",
   "type": "module",
   "main": "dist/index.js",
