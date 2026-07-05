@@ -160,4 +160,26 @@ describe('Phase 5 – Live Validation', () => {
     expect(results.map((r) => r.celex)).toContain('32024R1689')
     expect(results[0].eurlex_url).toContain('/es/')
   }, TIMEOUT)
+
+  // ID-LIVE-1 (Task 2 probe): GDPR ELI resolves to CELEX 32016R0679, both short
+  // and full form. Exercises cdm:resource_legal_eli literal matching.
+  it('ID-LIVE-1: resolveEliToCelex resolves the GDPR ELI to 32016R0679', async () => {
+    expect(await client.resolveEliToCelex('reg/2016/679')).toBe('32016R0679')
+    expect(await client.resolveEliToCelex('http://data.europa.eu/eli/reg/2016/679/oj')).toBe(
+      '32016R0679'
+    )
+  }, TIMEOUT)
+
+  // ID-LIVE-2 (Task 2 probe): AI Act OJ reference resolves to CELEX 32024R1689 via
+  // owl:sameAs on the OJ resource URI.
+  it('ID-LIVE-2: resolveOjRefToCelex resolves OJ:L_202401689 to 32024R1689', async () => {
+    expect(await client.resolveOjRefToCelex('OJ:L_202401689')).toBe('32024R1689')
+  }, TIMEOUT)
+
+  // ID-LIVE-3 (Task 2): a non-resolvable ELI raises a clear error (no false match).
+  it('ID-LIVE-3: an unknown ELI raises a clear "Could not resolve" error', async () => {
+    await expect(client.resolveEliToCelex('reg/1800/999')).rejects.toThrow(
+      /Could not resolve ELI/
+    )
+  }, TIMEOUT)
 })

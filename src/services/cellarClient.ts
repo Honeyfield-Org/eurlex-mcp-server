@@ -23,6 +23,7 @@ import type {
   CitationEntry,
 } from '../types.js';
 
+import { normalizeEliToCanonicalUri, normalizeOjRefToResourceUri } from './identifiers.js';
 import { TtlCache } from './ttlCache.js';
 
 /**
@@ -842,6 +843,97 @@ export class CellarClient {
       type: b.resType.value,
       eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${b.celex.value}`,
     }));
+  }
+
+  /**
+   * Resolves a document identifier to its CELEX ID. Exactly one of `celex_id`,
+   * `eli`, or `oj_ref` is expected (the calling tool schema enforces the XOR via
+   * superRefine before this runs). A `celex_id` is returned as-is with no network
+   * call; `eli`/`oj_ref` are looked up against Cellar SPARQL.
+   */
+  async resolveCelexId(input: {
+    celex_id?: string;
+    eli?: string;
+    oj_ref?: string;
+  }): Promise<string> {
+    if (input.celex_id !== undefined) return input.celex_id;
+    if (input.eli !== undefined) return this.resolveEliToCelex(input.eli);
+    if (input.oj_ref !== undefined) return this.resolveOjRefToCelex(input.oj_ref);
+    throw new Error('No identifier provided. Give one of: celex_id, eli, or oj_ref.');
+  }
+
+  /**
+   * Resolves an ELI (full URL or short `type/year/number`) to its CELEX ID via
+   * SPARQL. ELI is stored as the typed literal `cdm:resource_legal_eli`
+   * (xsd:anyURI) — matched with FILTER(STR(...)) exactly as the metadata/citations
+   * queries match CELEX literals. Probed 2026-07-05: GDPR ELI resolves to
+   * 32016R0679, AI Act ELI to 32024R1689.
+   *
+   * @throws with example ELI formats when the ELI is malformed or unresolvable.
+   */
+  async resolveEliToCelex(eli: string): Promise<string> {
+    const canonical = normalizeEliToCanonicalUri(eli);
+
+    const sparql = [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      'SELECT ?celex WHERE {',
+      '  ?work cdm:resource_legal_eli ?eli .',
+      `  FILTER(STR(?eli) = "${escapeSparqlString(canonical)}")`,
+      '  ?work cdm:resource_legal_id_celex ?celex .',
+      '}',
+      'LIMIT 1',
+    ].join('\n');
+
+    const data = await this.executeSparql<{
+      results: { bindings: { celex: { value: string } }[] };
+    }>(sparql);
+
+    const bindings = data.results.bindings;
+    if (bindings.length === 0) {
+      throw new Error(
+        `Could not resolve ELI "${eli}" (${canonical}) to a CELEX ID: no matching EU act found. ` +
+          'Examples: "reg/2016/679" (GDPR), "dir/2022/2555" (NIS2).',
+      );
+    }
+    return bindings[0].celex.value;
+  }
+
+  /**
+   * Resolves an OJ reference in the post-2023 scheme (e.g. "OJ:L_202401689") to
+   * its CELEX ID via SPARQL. The work is linked to the OJ resource URI through
+   * `owl:sameAs` (probed 2026-07-05: L_202401689 -> 32024R1689, unique). The OJ
+   * reference alone cannot yield the CELEX arithmetically — its "L" is the OJ
+   * series, not the R/L/D act type — so this lookup is mandatory.
+   *
+   * @throws with an example OJ format when the reference is malformed or unresolvable.
+   */
+  async resolveOjRefToCelex(ojRef: string): Promise<string> {
+    // normalizeOjRefToResourceUri only emits [A-Za-z0-9_] in the id, so the URI is
+    // IRI-safe and embeds directly (like the validated URIs in buildEurovocQuery).
+    const ojUri = normalizeOjRefToResourceUri(ojRef);
+
+    const sparql = [
+      'PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>',
+      'PREFIX owl: <http://www.w3.org/2002/07/owl#>',
+      'SELECT ?celex WHERE {',
+      `  ?work owl:sameAs <${ojUri}> .`,
+      '  ?work cdm:resource_legal_id_celex ?celex .',
+      '}',
+      'LIMIT 1',
+    ].join('\n');
+
+    const data = await this.executeSparql<{
+      results: { bindings: { celex: { value: string } }[] };
+    }>(sparql);
+
+    const bindings = data.results.bindings;
+    if (bindings.length === 0) {
+      throw new Error(
+        `Could not resolve OJ reference "${ojRef}" (${ojUri}) to a CELEX ID: no matching EU act found. ` +
+          'Example: "OJ:L_202401689" (AI Act).',
+      );
+    }
+    return bindings[0].celex.value;
   }
 
   /** Maps doc_type (reg/dir/dec) to CELEX type letter (R/L/D) */

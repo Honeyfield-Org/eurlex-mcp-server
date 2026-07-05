@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ZodError } from 'zod'
-import { fetchSchema } from '../src/schemas/fetchSchema.js'
+import { fetchSchema, fetchInputSchema } from '../src/schemas/fetchSchema.js'
 
 describe('fetchSchema', () => {
   it('F1 – accepts standard CELEX ID', () => {
@@ -39,5 +39,40 @@ describe('fetchSchema', () => {
 
   it('F8 – rejects a non-integer offset', () => {
     expect(() => fetchSchema.parse({ celex_id: '32024R1689', offset: 1.5 })).toThrow(ZodError)
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2: eli / oj_ref fields + XOR (fetchInputSchema)
+  // -------------------------------------------------------------------------
+  it('F9 – base schema accepts an eli input', () => {
+    const result = fetchSchema.parse({ eli: 'reg/2016/679' })
+    expect(result.eli).toBe('reg/2016/679')
+    expect(result.language).toBe('DEU')
+  })
+
+  it('F10 – base schema accepts an oj_ref input', () => {
+    const result = fetchSchema.parse({ oj_ref: 'OJ:L_202401689' })
+    expect(result.oj_ref).toBe('OJ:L_202401689')
+  })
+
+  it('F11 – fetchInputSchema accepts exactly one identifier', () => {
+    expect(() => fetchInputSchema.parse({ celex_id: '32024R1689' })).not.toThrow()
+    expect(() => fetchInputSchema.parse({ eli: 'reg/2016/679' })).not.toThrow()
+    expect(() => fetchInputSchema.parse({ oj_ref: 'OJ:L_202401689' })).not.toThrow()
+  })
+
+  it('F12 – fetchInputSchema rejects two identifiers at once', () => {
+    expect(() =>
+      fetchInputSchema.parse({ celex_id: '32024R1689', eli: 'reg/2016/679' })
+    ).toThrow(/only one identifier/i)
+    expect(() =>
+      fetchInputSchema.parse({ eli: 'reg/2016/679', oj_ref: 'OJ:L_202401689' })
+    ).toThrow(/only one identifier/i)
+  })
+
+  it('F13 – fetchInputSchema rejects when no identifier is given', () => {
+    expect(() => fetchInputSchema.parse({ language: 'ENG' })).toThrow(
+      /exactly one identifier/i
+    )
   })
 })

@@ -3,11 +3,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 // Mock CellarClient — must be before importing the tool handler
 // ---------------------------------------------------------------------------
-const { mockMetadataQuery } = vi.hoisted(() => ({ mockMetadataQuery: vi.fn() }))
+const { mockMetadataQuery, mockResolveCelexId } = vi.hoisted(() => ({
+  mockMetadataQuery: vi.fn(),
+  mockResolveCelexId: vi.fn(),
+}))
 
 vi.mock('../src/services/cellarClient.js', () => ({
   CellarClient: vi.fn(),
-  sharedCellarClient: { metadataQuery: mockMetadataQuery },
+  sharedCellarClient: {
+    metadataQuery: mockMetadataQuery,
+    resolveCelexId: mockResolveCelexId,
+  },
 }))
 
 import { handleEurlexMetadata } from '../src/tools/metadata.js'
@@ -17,6 +23,12 @@ import { handleEurlexMetadata } from '../src/tools/metadata.js'
 // ---------------------------------------------------------------------------
 beforeEach(() => {
   vi.clearAllMocks()
+  // Mirror the real resolveCelexId: celex_id passes through, eli/oj_ref would hit
+  // SPARQL — individual tests override for the eli/oj_ref paths.
+  mockResolveCelexId.mockImplementation(
+    async (i: { celex_id?: string; eli?: string; oj_ref?: string }) =>
+      i.celex_id ?? i.eli ?? i.oj_ref
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -109,5 +121,57 @@ describe('handleEurlexMetadata()', () => {
     expect(Array.isArray(parsed.eurovoc_concepts)).toBe(true)
     expect(Array.isArray(parsed.directory_codes)).toBe(true)
     expect(Array.isArray(parsed.legal_basis)).toBe(true)
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2: eli / oj_ref identifier inputs + XOR
+  // -------------------------------------------------------------------------
+  it('M-ELI – resolves an eli input to a CELEX before querying metadata', async () => {
+    mockResolveCelexId.mockResolvedValueOnce('32016R0679')
+    mockMetadataQuery.mockResolvedValueOnce({ ...mockResult, celex_id: '32016R0679' })
+
+    const result = await handleEurlexMetadata({
+      eli: 'reg/2016/679',
+      language: 'ENG',
+    })
+
+    expect(mockResolveCelexId).toHaveBeenCalledWith(
+      expect.objectContaining({ eli: 'reg/2016/679' })
+    )
+    expect(mockMetadataQuery).toHaveBeenCalledWith('32016R0679', 'ENG')
+    const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.celex_id).toBe('32016R0679')
+  })
+
+  it('M-OJ – resolves an oj_ref input to a CELEX before querying metadata', async () => {
+    mockResolveCelexId.mockResolvedValueOnce('32024R1689')
+    mockMetadataQuery.mockResolvedValueOnce(mockResult)
+
+    await handleEurlexMetadata({
+      oj_ref: 'OJ:L_202401689',
+      language: 'DEU',
+    })
+
+    expect(mockMetadataQuery).toHaveBeenCalledWith('32024R1689', 'DEU')
+  })
+
+  it('M-XOR1 – rejects when two identifiers are given at once', async () => {
+    const result = await handleEurlexMetadata({
+      celex_id: '32024R1689',
+      oj_ref: 'OJ:L_202401689',
+      language: 'DEU',
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toMatch(/only one identifier/i)
+    expect(mockMetadataQuery).not.toHaveBeenCalled()
+  })
+
+  it('M-XOR2 – rejects when no identifier is given', async () => {
+    const result = await handleEurlexMetadata({ language: 'DEU' })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toMatch(/exactly one identifier/i)
+    expect(mockMetadataQuery).not.toHaveBeenCalled()
   })
 })

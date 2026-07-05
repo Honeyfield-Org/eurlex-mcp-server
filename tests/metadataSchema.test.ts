@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ZodError } from 'zod'
-import { metadataSchema } from '../src/schemas/metadataSchema.js'
+import { metadataSchema, metadataInputSchema } from '../src/schemas/metadataSchema.js'
 
 // ===========================================================================
 // Tests M1-M6: metadataSchema validation
@@ -53,5 +53,31 @@ describe('metadataSchema', () => {
   it('M8 – rejects dangerous characters', () => {
     expect(() => metadataSchema.parse({ celex_id: '<script>' })).toThrow(ZodError)
     expect(() => metadataSchema.parse({ celex_id: '32024R1689{x}' })).toThrow(ZodError)
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2: eli / oj_ref fields + XOR (metadataInputSchema)
+  // -------------------------------------------------------------------------
+  it('M9 – base schema accepts eli and oj_ref inputs', () => {
+    expect(metadataSchema.parse({ eli: 'reg/2016/679' }).eli).toBe('reg/2016/679')
+    expect(metadataSchema.parse({ oj_ref: 'OJ:L_202401689' }).oj_ref).toBe('OJ:L_202401689')
+  })
+
+  it('M10 – metadataInputSchema accepts exactly one identifier', () => {
+    expect(() => metadataInputSchema.parse({ celex_id: '32024R1689' })).not.toThrow()
+    expect(() => metadataInputSchema.parse({ eli: 'reg/2016/679' })).not.toThrow()
+    expect(() => metadataInputSchema.parse({ oj_ref: 'OJ:L_202401689' })).not.toThrow()
+  })
+
+  it('M11 – metadataInputSchema rejects two identifiers at once', () => {
+    expect(() =>
+      metadataInputSchema.parse({ celex_id: '32024R1689', oj_ref: 'OJ:L_202401689' })
+    ).toThrow(/only one identifier/i)
+  })
+
+  it('M12 – metadataInputSchema rejects when no identifier is given', () => {
+    expect(() => metadataInputSchema.parse({ language: 'ENG' })).toThrow(
+      /exactly one identifier/i
+    )
   })
 })

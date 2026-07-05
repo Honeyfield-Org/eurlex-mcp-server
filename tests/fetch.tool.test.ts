@@ -3,11 +3,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 // Mock CellarClient — must be before importing the tool handler
 // ---------------------------------------------------------------------------
-const { mockFetchDocument } = vi.hoisted(() => ({ mockFetchDocument: vi.fn() }))
+const { mockFetchDocument, mockResolveCelexId } = vi.hoisted(() => ({
+  mockFetchDocument: vi.fn(),
+  mockResolveCelexId: vi.fn(),
+}))
 
 vi.mock('../src/services/cellarClient.js', () => ({
   CellarClient: vi.fn(),
-  sharedCellarClient: { fetchDocument: mockFetchDocument },
+  sharedCellarClient: {
+    fetchDocument: mockFetchDocument,
+    // Default: behave like the real dispatch for a celex_id (verbatim), so the
+    // existing celex_id-based tests need no per-test setup. eli/oj_ref tests
+    // override this to a resolved CELEX.
+    resolveCelexId: mockResolveCelexId,
+  },
 }))
 
 import { CELLAR_REST_BASE } from '../src/constants.js'
@@ -19,6 +28,12 @@ import type { FetchResult } from '../src/types.js'
 // ---------------------------------------------------------------------------
 beforeEach(() => {
   vi.clearAllMocks()
+  // Mirror the real resolveCelexId: celex_id passes through, eli/oj_ref would hit
+  // SPARQL — individual tests override for the eli/oj_ref paths.
+  mockResolveCelexId.mockImplementation(
+    async (i: { celex_id?: string; eli?: string; oj_ref?: string }) =>
+      i.celex_id ?? i.eli ?? i.oj_ref
+  )
 })
 
 // ===========================================================================
@@ -234,5 +249,92 @@ describe('handleEurlexFetch()', () => {
       expect(parsed).toHaveProperty(key)
     }
     expect(parsed).not.toHaveProperty('char_count')
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 2: eli / oj_ref identifier inputs + XOR
+  // -------------------------------------------------------------------------
+  it('T-ELI – resolves an eli input to a CELEX, then fetches and reports it', async () => {
+    mockResolveCelexId.mockResolvedValueOnce('32016R0679')
+    mockFetchDocument.mockResolvedValueOnce('<p>GDPR text</p>')
+
+    const result = await handleEurlexFetch({
+      eli: 'reg/2016/679',
+      language: 'ENG',
+      format: 'plain',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(mockResolveCelexId).toHaveBeenCalledWith(
+      expect.objectContaining({ eli: 'reg/2016/679' })
+    )
+    expect(mockFetchDocument).toHaveBeenCalledWith('32016R0679', 'ENG')
+    const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.celex_id).toBe('32016R0679')
+    expect(parsed.source_url).toBe(`${CELLAR_REST_BASE}/32016R0679`)
+  })
+
+  it('T-OJ – resolves an oj_ref input to a CELEX, then fetches and reports it', async () => {
+    mockResolveCelexId.mockResolvedValueOnce('32024R1689')
+    mockFetchDocument.mockResolvedValueOnce('<p>AI Act text</p>')
+
+    const result = await handleEurlexFetch({
+      oj_ref: 'OJ:L_202401689',
+      language: 'ENG',
+      format: 'plain',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(mockFetchDocument).toHaveBeenCalledWith('32024R1689', 'ENG')
+    const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.celex_id).toBe('32024R1689')
+  })
+
+  it('T-XOR1 – rejects when two identifiers are given at once', async () => {
+    const result = await handleEurlexFetch({
+      celex_id: '32024R1689',
+      eli: 'reg/2016/679',
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toMatch(/only one identifier/i)
+    expect(mockFetchDocument).not.toHaveBeenCalled()
+  })
+
+  it('T-XOR2 – rejects when no identifier is given', async () => {
+    const result = await handleEurlexFetch({
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toMatch(/exactly one identifier/i)
+    expect(mockFetchDocument).not.toHaveBeenCalled()
+  })
+
+  it('T-RESOLVE-ERR – surfaces a resolution failure as isError', async () => {
+    mockResolveCelexId.mockRejectedValueOnce(
+      new Error('Could not resolve ELI "reg/1800/999" (...): no matching EU act found.')
+    )
+
+    const result = await handleEurlexFetch({
+      eli: 'reg/1800/999',
+      language: 'DEU',
+      format: 'xhtml',
+      max_chars: 20000,
+      offset: 0,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('Could not resolve ELI')
+    expect(mockFetchDocument).not.toHaveBeenCalled()
   })
 })
