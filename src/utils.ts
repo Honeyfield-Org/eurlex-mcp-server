@@ -35,6 +35,44 @@ export function stripHtml(content: string): string {
     .replace(/\n{3,}/g, '\n\n');
 }
 
+/**
+ * Sorts rows by date descending (empty/missing dates last), deduplicates by
+ * `celex` (a work can carry multiple resource-types, so the same CELEX may
+ * appear more than once), then slices to `limit`.
+ *
+ * Shared by CellarClient.sparqlQuery() and CellarClient.caseLawQuery(): both
+ * build their SPARQL query WITHOUT `ORDER BY` and oversample the SPARQL
+ * `LIMIT` (see buildSparqlQuery / buildCaseLawQuery for why — `ORDER BY
+ * DESC(?date)` forces Virtuoso to materialize the full result set before
+ * applying LIMIT, which times out for broad queries), so this client-side
+ * pipeline does the sort/dedup/slice instead.
+ *
+ * ISO date strings sort lexicographically = chronologically. Array.sort is
+ * stable, so equal-date rows (including same-CELEX duplicates) keep their
+ * original order — dedup then keeps the first (newest, or original-order for
+ * ties) occurrence per CELEX.
+ */
+export function sortDedupSlice<T extends { celex: string; date: string }>(
+  rows: T[],
+  limit: number,
+): T[] {
+  const sorted = [...rows].sort((a, b) => {
+    if (a.date === b.date) return 0;
+    if (a.date === '') return 1;
+    if (b.date === '') return -1;
+    return a.date < b.date ? 1 : -1;
+  });
+
+  const seen = new Set<string>();
+  const deduped = sorted.filter((r) => {
+    if (seen.has(r.celex)) return false;
+    seen.add(r.celex);
+    return true;
+  });
+
+  return deduped.slice(0, limit);
+}
+
 export function toolError(error: unknown): {
   content: { type: 'text'; text: string }[];
   isError: true;

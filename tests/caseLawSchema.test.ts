@@ -19,6 +19,10 @@ describe('caseLawSchema', () => {
     expect(caseLawSchema.parse({ ecli: 'ECLI:EU:T:2007:289' }).ecli).toBe('ECLI:EU:T:2007:289')
   })
 
+  it('accepts a lowercase ECLI (case-insensitive regex; normalization happens client-side)', () => {
+    expect(caseLawSchema.parse({ ecli: 'ecli:eu:c:2014:317' }).ecli).toBe('ecli:eu:c:2014:317')
+  })
+
   it('rejects a malformed ECLI', () => {
     expect(() => caseLawSchema.parse({ ecli: 'not-an-ecli' })).toThrow()
     expect(() => caseLawSchema.parse({ ecli: 'ECLI:EU:C:2014' })).toThrow()

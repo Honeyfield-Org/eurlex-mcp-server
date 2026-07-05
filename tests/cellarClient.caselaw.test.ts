@@ -117,6 +117,17 @@ describe('buildCaseLawQuery()', () => {
     )
     expect(sparql).toContain('6\\"x')
   })
+
+  it('CL22 – lowercase ecli input is normalized to uppercase in the SPARQL FILTER', () => {
+    const sparql = client.buildCaseLawQuery(params({ ecli: 'ecli:eu:c:2014:317' }))
+    expect(sparql).toContain('FILTER(STR(?ecli) = "ECLI:EU:C:2014:317")')
+    expect(sparql).not.toContain('ecli:eu:c:2014:317')
+  })
+
+  it('CL23 – mixed-case ecli input is normalized to uppercase in the SPARQL FILTER', () => {
+    const sparql = client.buildCaseLawQuery(params({ ecli: 'Ecli:Eu:C:2014:317' }))
+    expect(sparql).toContain('FILTER(STR(?ecli) = "ECLI:EU:C:2014:317")')
+  })
 })
 
 describe('caseLawQuery()', () => {
@@ -256,5 +267,23 @@ describe('caseLawQuery()', () => {
     )
     expect(result.total).toBe(0)
     expect(result.results).toEqual([])
+  })
+
+  it('CL24 – caseLawQuery() sends the uppercase ECLI in the SPARQL request body given lowercase input', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ results: { bindings: [] } }),
+    })
+    const client = new CellarClient()
+    await client.caseLawQuery({
+      ecli: 'ecli:eu:c:2014:317',
+      court: 'any',
+      type: 'any',
+      language: 'DEU',
+      limit: 10,
+    })
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(options.body).toContain('FILTER(STR(?ecli) = "ECLI:EU:C:2014:317")')
+    expect(options.body).not.toContain('ecli:eu:c:2014:317')
   })
 })

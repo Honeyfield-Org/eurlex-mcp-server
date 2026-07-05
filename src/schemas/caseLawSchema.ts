@@ -10,6 +10,12 @@ import { LANGUAGE_ENUM } from '../languages.js';
  * (any 2-letter country, 1–7 char court code) so valid national ECLIs are not
  * rejected — the value is still matched exactly against the stored
  * `cdm:case-law_ecli` literal and escaped as defense-in-depth.
+ *
+ * Case-insensitive (`/i`) so lowercase/mixed-case user input validates —
+ * Cellar's canonical ECLI literals are always uppercase, so
+ * `CellarClient.buildCaseLawQuery` uppercases the value before it enters the
+ * SPARQL FILTER; without that normalization a lowercase input would pass
+ * validation here but silently match zero rows.
  */
 export const ECLI_REGEX = /^ECLI:[A-Z]{2}:[A-Z0-9]{1,7}:\d{4}:[A-Z0-9.]{1,25}$/i;
 

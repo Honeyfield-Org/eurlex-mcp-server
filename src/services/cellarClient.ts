@@ -25,6 +25,7 @@ import type {
   CaseLawEntry,
   CaseLawResult,
 } from '../types.js';
+import { sortDedupSlice } from '../utils.js';
 
 import { normalizeEliToCanonicalUri, normalizeOjRefToResourceUri } from './identifiers.js';
 import { TtlCache } from './ttlCache.js';
@@ -371,27 +372,8 @@ export class CellarClient {
     });
 
     // The SPARQL query has no ORDER BY (see buildSparqlQuery) and oversamples the
-    // LIMIT, so we sort here: date descending, with empty/missing dates last.
-    // ISO date strings sort lexicographically = chronologically. Array.sort is
-    // stable, so equal-date rows keep their original order.
-    const sorted = [...results].sort((a, b) => {
-      if (a.date === b.date) return 0;
-      if (a.date === '') return 1;
-      if (b.date === '') return -1;
-      return a.date < b.date ? 1 : -1;
-    });
-
-    // Deduplicate by CELEX ID (same document can have multiple resource types).
-    // After the date-desc sort, the first occurrence per CELEX is the newest.
-    const seen = new Set<string>();
-    const deduped = sorted.filter((r) => {
-      if (seen.has(r.celex)) return false;
-      seen.add(r.celex);
-      return true;
-    });
-
-    // Slice back down to the caller's requested limit (we oversampled for the sort).
-    const limited = deduped.slice(0, fullParams.limit);
+    // LIMIT, so we sort/dedup/slice client-side here (shared with caseLawQuery()).
+    const limited = sortDedupSlice(results, fullParams.limit);
 
     return { results: limited, sparql };
   }
@@ -792,10 +774,15 @@ export class CellarClient {
     }
 
     // ECLI: anchor on it when provided, otherwise fetch it optionally for output.
+    // Cellar stores ECLIs in their uppercase canonical form; the schema accepts
+    // lowercase input for user-friendliness (ECLI_REGEX is case-insensitive), so
+    // normalize to uppercase here — the one spot where the value enters the
+    // query — otherwise a lowercase input would validate but silently match zero
+    // rows.
     if (params.ecli) {
       whereLines.push(
         '    ?work cdm:case-law_ecli ?ecli .',
-        `    FILTER(STR(?ecli) = "${escapeSparqlString(params.ecli)}")`,
+        `    FILTER(STR(?ecli) = "${escapeSparqlString(params.ecli.toUpperCase())}")`,
       );
     } else {
       whereLines.push('    OPTIONAL { ?work cdm:case-law_ecli ?ecli . }');
@@ -866,9 +853,10 @@ export class CellarClient {
 
   /**
    * Executes a case-law query and returns deduplicated, date-sorted results.
-   * The same client-side pipeline as sparqlQuery: sort date-desc (empty dates
-   * last), dedup by CELEX (a work can carry multiple resource-types), slice to
-   * the requested limit (the SPARQL LIMIT was oversampled).
+   * Uses the same sortDedupSlice() pipeline as sparqlQuery(): sort date-desc
+   * (empty dates last), dedup by CELEX (a work can carry multiple
+   * resource-types), slice to the requested limit (the SPARQL LIMIT was
+   * oversampled).
    */
   async caseLawQuery(params: CaseLawQueryParams): Promise<CaseLawResult> {
     const sparql = this.buildCaseLawQuery(params);
@@ -884,23 +872,7 @@ export class CellarClient {
       eurlex_url: `${EURLEX_BASE}/${httpLang}/TXT/?uri=CELEX:${b.celex.value}`,
     }));
 
-    // Date descending, empty/missing dates last. Array.sort is stable, so equal
-    // dates keep their original (query) order. ISO dates sort chronologically.
-    const sorted = [...entries].sort((a, b) => {
-      if (a.date === b.date) return 0;
-      if (a.date === '') return 1;
-      if (b.date === '') return -1;
-      return a.date < b.date ? 1 : -1;
-    });
-
-    const seen = new Set<string>();
-    const deduped = sorted.filter((r) => {
-      if (seen.has(r.celex)) return false;
-      seen.add(r.celex);
-      return true;
-    });
-
-    const limited = deduped.slice(0, params.limit);
+    const limited = sortDedupSlice(entries, params.limit);
     return { results: limited, total: limited.length };
   }
 
