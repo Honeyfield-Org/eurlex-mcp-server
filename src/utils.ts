@@ -144,7 +144,8 @@ export interface OutlineEntry {
   /**
    * Nesting-depth hint derived from the heading kind:
    * 1 = part / title / annex (top-level divisions), 2 = chapter, 3 = section,
-   * 4 = article. Not a strict tree — a compact ordering cue for rendering.
+   * 4 = article (or a numbered CJEU judgment paragraph, in case law). Not a
+   * strict tree — a compact ordering cue for rendering.
    */
   level: number;
   /** Normalized heading label, e.g. "Article 5", "CHAPTER I", "ANNEX III". */
@@ -180,6 +181,13 @@ export interface Outline {
  */
 const HWS = ' \\t\\u00A0';
 const ROMAN = '[IVXLCDM]+';
+
+/**
+ * A CJEU numbered-paragraph line: a whole line that is nothing but a 1–4 digit
+ * number (optionally leading whitespace). Group 1 = leading whitespace, group 2
+ * = the number — mirroring the heading rules' capture convention.
+ */
+const NUMBERED_PARAGRAPH_RE = new RegExp(`^([${HWS}]*)(\\d{1,4})[${HWS}]*$`);
 
 /**
  * Ordered heading rules. Each matches a WHOLE plain-text line — the line must be
@@ -261,6 +269,28 @@ function matchHeading(line: string): MatchedHeading | null {
 }
 
 /**
+ * Recognizes a CJEU numbered judgment paragraph: a line that is ONLY a 1–4 digit
+ * number whose previous AND next line are both blank (empty after trim). CJEU
+ * judgments number their paragraphs as bare-number lines set off by blank lines;
+ * the blank-line adjacency is the false-positive guard against numbers that
+ * appear mid-text (e.g. a numbered list item flush against surrounding prose).
+ * A document edge (no previous / no next line) counts as blank. Only enabled for
+ * case law — the caller gates on CELEX sector 6.
+ */
+function matchNumberedParagraph(
+  lines: string[],
+  i: number,
+): { number: string; labelStart: number } | null {
+  const m = NUMBERED_PARAGRAPH_RE.exec(lines[i]);
+  if (!m) return null;
+  const prevBlank = i === 0 || lines[i - 1].trim() === '';
+  const nextBlank = i === lines.length - 1 || lines[i + 1].trim() === '';
+  if (!prevBlank || !nextBlank) return null;
+  const [, lead, number] = m;
+  return { number, labelStart: lead.length };
+}
+
+/**
  * The subtitle of a heading: the next non-empty line, unless that line is itself
  * a heading (then there is no subtitle). Scans a few lines ahead to skip the
  * blank lines OJ markup leaves between a heading and its title. U+00A0 is
@@ -292,7 +322,11 @@ function subtitleAfter(lines: string[], i: number): string {
  * `maxEntries` caps the returned list (the outline stays compact for huge acts);
  * `total` still reports the full count and `truncated` flags the cap.
  */
-export function parseOutline(plainText: string, maxEntries = 300): Outline {
+export function parseOutline(
+  plainText: string,
+  maxEntries = 300,
+  opts: { numberedParagraphs?: boolean } = {},
+): Outline {
   const lines = plainText.split('\n');
   const entries: OutlineEntry[] = [];
   let offset = 0;
@@ -300,12 +334,23 @@ export function parseOutline(plainText: string, maxEntries = 300): Outline {
     const line = lines[i];
     const h = matchHeading(line);
     if (h) {
+      // Word-headings take precedence and are detected regardless of the flag.
       entries.push({
         level: h.level,
         label: h.label,
         title: subtitleAfter(lines, i),
         offset: offset + h.labelStart,
       });
+    } else if (opts.numberedParagraphs) {
+      const p = matchNumberedParagraph(lines, i);
+      if (p) {
+        entries.push({
+          level: 4,
+          label: `Paragraph ${p.number}`,
+          title: '',
+          offset: offset + p.labelStart,
+        });
+      }
     }
     // split('\n') consumed exactly one '\n' (1 char) after each line but the last.
     offset += line.length + 1;

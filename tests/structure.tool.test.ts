@@ -127,4 +127,55 @@ describe('handleEurlexStructure()', () => {
     expect(res.isError).toBe(true)
     expect(res.content[0].text).toContain('Document not found')
   })
+
+  // A CJEU judgment renders each numbered paragraph as a bare number on its own
+  // <p>, separated by blank lines. stripHtml only strips tags + collapses
+  // whitespace (it does NOT insert newlines for block elements), so the source
+  // must carry explicit \n\n between the <p> elements for the numbers to end up
+  // blank-line-surrounded in the stripped text.
+  const CASELAW_XHTML =
+    '<html><body>\n' +
+    '<p>The Court gives the following judgment.</p>\n\n' +
+    '<p>1</p>\n\n' +
+    '<p>First paragraph of the judgment.</p>\n\n' +
+    '<p>2</p>\n\n' +
+    '<p>Second paragraph of the judgment.</p>\n' +
+    '</body></html>'
+
+  it('ST8 – case-law CELEX (sector 6) surfaces numbered paragraphs', async () => {
+    mockResolveCelexId.mockResolvedValueOnce('62017CJ0573')
+    mockFetchDocument.mockResolvedValueOnce(CASELAW_XHTML)
+
+    const res = await handleEurlexStructure({ celex_id: '62017CJ0573', language: 'ENG' })
+
+    expect(res.isError).toBeFalsy()
+    const out = parse(res)
+    expect(out.outline.map((e) => e.label)).toEqual(['Paragraph 1', 'Paragraph 2'])
+  })
+
+  it('ST9 – gating: the SAME fixture with a sector-3 CELEX yields no paragraphs', async () => {
+    mockResolveCelexId.mockResolvedValueOnce('32024R1689')
+    mockFetchDocument.mockResolvedValueOnce(CASELAW_XHTML)
+
+    const res = await handleEurlexStructure({ celex_id: '32024R1689', language: 'ENG' })
+
+    expect(res.isError).toBeFalsy()
+    const out = parse(res)
+    expect(out.outline).toEqual([])
+    expect(out.total_headings).toBe(0)
+  })
+
+  it('ST10 – empty case-law outline: note mentions numbered paragraphs, not heading words', async () => {
+    mockResolveCelexId.mockResolvedValueOnce('62017CO0999')
+    mockFetchDocument.mockResolvedValueOnce(
+      '<html><body><p>A very short order with no numbered paragraphs.</p></body></html>',
+    )
+
+    const res = await handleEurlexStructure({ celex_id: '62017CO0999', language: 'ENG' })
+
+    expect(res.isError).toBeFalsy()
+    const out = parse(res)
+    expect(out.outline).toEqual([])
+    expect(out.note).toContain('numbered paragraph')
+  })
 })

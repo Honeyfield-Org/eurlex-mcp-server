@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { CELEX_REGEX } from '../constants.js';
+import { CELEX_REGEX, MAX_CHARS_DEFAULT, MAX_CHARS_LIMIT, MAX_CHARS_MIN } from '../constants.js';
 import { LANGUAGE_ENUM } from '../languages.js';
 
 export const fetchSchema = z
@@ -36,9 +36,9 @@ export const fetchSchema = z
     max_chars: z
       .number()
       .int()
-      .min(1000)
-      .max(50000)
-      .default(20000)
+      .min(MAX_CHARS_MIN)
+      .max(MAX_CHARS_LIMIT)
+      .default(MAX_CHARS_DEFAULT)
       .describe('Maximum number of characters returned'),
     offset: z
       .number()

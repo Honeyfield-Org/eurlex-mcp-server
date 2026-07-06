@@ -21,6 +21,11 @@ export const CELLAR_SUMMARY_MIME = 'application/xhtml+xml;type=xhtml5';
 export const SUMMARY_LOOKUP_LIMIT = 100;
 export const DEFAULT_LANGUAGE = 'DEU';
 export const DEFAULT_LIMIT = 10;
+// Pagination-window bounds shared by the max_chars param of eurlex_fetch,
+// eurlex_consolidated and eurlex_summary: min 1000, default 20000, hard cap
+// 50000 chars per call (a document longer than one window is read across calls
+// via offset/next_offset). Single source of truth so the three schemas can't drift.
+export const MAX_CHARS_MIN = 1000;
 export const MAX_CHARS_DEFAULT = 20000;
 export const MAX_CHARS_LIMIT = 50000;
 export const REQUEST_TIMEOUT_MS = 30000;
