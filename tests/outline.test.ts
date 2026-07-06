@@ -237,3 +237,77 @@ describe('parseOutline() — large-document cap', () => {
     expect(truncated).toBe(true)
   })
 })
+
+describe('parseOutline() — CJEU numbered paragraphs (case law)', () => {
+  // In a CJEU judgment's plain text each numbered paragraph sits on its own line
+  // as a bare number, surrounded by blank lines. With { numberedParagraphs: true }
+  // the parser must surface these as level-4 entries; without the flag it must not.
+  const plain = [
+    'The Court gives the following judgment.',
+    '',
+    ' 49',
+    '',
+    'In the light of the foregoing considerations, the answer is X.',
+    '',
+    ' 50',
+    '',
+    'By its first question, the referring court asks Y.',
+  ].join('\n')
+
+  it('PP1 – with { numberedParagraphs: true } detects the numbered paragraphs', () => {
+    const { entries } = parseOutline(plain, 300, { numberedParagraphs: true })
+    expect(entries.map((e) => e.label)).toEqual(['Paragraph 49', 'Paragraph 50'])
+    for (const e of entries) {
+      expect(e.level).toBe(4)
+      expect(e.title).toBe('')
+    }
+  })
+
+  it('PP2 – offset coupling: the "Paragraph 49" offset lands on the number (leading space skipped)', () => {
+    const { entries } = parseOutline(plain, 300, { numberedParagraphs: true })
+    const p49 = entries.find((e) => e.label === 'Paragraph 49')!
+    expect(plain.slice(p49.offset).startsWith('49')).toBe(true)
+  })
+
+  it('PP3 – gating: no paragraph entries when the flag is absent or false', () => {
+    expect(parseOutline(plain).entries).toEqual([])
+    expect(parseOutline(plain, 300, { numberedParagraphs: false }).entries).toEqual([])
+  })
+
+  it('PP4 – FP guard: a bare number NOT surrounded by blank lines is not matched', () => {
+    // (a) neither neighbour blank.
+    const a = parseOutline(['text before', ' 5', 'text after'].join('\n'), 300, {
+      numberedParagraphs: true,
+    })
+    expect(a.entries).toEqual([])
+    // (b) preceding line blank but following line non-blank.
+    const b = parseOutline(['', ' 7', 'immediately-following body'].join('\n'), 300, {
+      numberedParagraphs: true,
+    })
+    expect(b.entries).toEqual([])
+  })
+
+  it('PP5 – digit-count bound: a 5-digit bare-number line is not a paragraph', () => {
+    const { entries } = parseOutline(['before.', '', ' 12345', '', 'after.'].join('\n'), 300, {
+      numberedParagraphs: true,
+    })
+    expect(entries).toEqual([])
+  })
+
+  it('PP6 – word-headings still work alongside paragraphs when the flag is on', () => {
+    const mixed = [
+      'Article 5',
+      'Prohibited AI practices',
+      'Body of the fifth article.',
+      '',
+      ' 12',
+      '',
+      'A numbered paragraph body.',
+    ].join('\n')
+    const { entries } = parseOutline(mixed, 300, { numberedParagraphs: true })
+    const art5 = entries.find((e) => e.label === 'Article 5')
+    const p12 = entries.find((e) => e.label === 'Paragraph 12')
+    expect(art5?.level).toBe(4)
+    expect(p12).toBeDefined()
+  })
+})

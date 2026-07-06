@@ -31,7 +31,7 @@ Ask your AI assistant questions like:
 - **EuroVoc thesaurus search** -- find documents by EU taxonomy concepts, with automatic label fallback across all 24 languages
 - **CJEU case law** -- find judgments, orders, and Advocate General opinions by ECLI, CELEX, party/title, or the act they interpret
 - **National transposition measures (NIM)** -- list how member states transposed a given directive into national law
-- **Document outline + targeted reading** -- get an act's table of contents with plain-text offsets, then jump straight to a specific article with `eurlex_fetch`
+- **Document outline + targeted reading** -- get an act's table of contents with plain-text offsets, then jump straight to a specific article with `eurlex_fetch`; for CJEU case law (CELEX sector 6) the outline also lists each numbered judgment paragraph as `Paragraph N`, so you can jump to a specific paragraph the same way (paragraph detection is language-independent)
 - **Plain-language summaries** -- retrieve the EU's LEGISSUM summary of an act
 - **Raw SPARQL escape hatch** -- run read-only `SELECT`/`ASK` queries directly against Cellar for questions the other tools can't express
 - **Consolidated versions** -- retrieve the latest in-force text of regulations, directives, and decisions, identified by CELEX ID or by doc type + year + number
@@ -286,7 +286,7 @@ List the national implementing measures (NIMs) EU member states enacted to trans
 
 ### eurlex_structure
 
-Return the outline (table of contents) of an act -- its chapters, sections, articles, and annexes -- each with a character `offset` into the document's **plain** text. Use it as a map for targeted reading: read an article's `offset`, then call `eurlex_fetch(celex_id, format:"plain", offset, max_chars)` to jump straight to that article. Pass the **same** `language` to the follow-up fetch and keep `format:"plain"` -- offsets are language- and plain-text-specific. Heading recognition covers English, German, and French. Each outline entry has `level` (1=part/title/annex, 2=chapter, 3=section, 4=article), `label` (e.g. `"Article 5"`), `title`, and `offset`; `total_headings` is the full count and the list is capped at 300 for very large acts (`truncated=true`).
+Return the outline (table of contents) of an act -- its chapters, sections, articles, and annexes -- each with a character `offset` into the document's **plain** text. Use it as a map for targeted reading: read an article's `offset`, then call `eurlex_fetch(celex_id, format:"plain", offset, max_chars)` to jump straight to that article. Pass the **same** `language` to the follow-up fetch and keep `format:"plain"` -- offsets are language- and plain-text-specific. Heading recognition covers English, German, and French. For case-law documents (CELEX sector 6, e.g. CJEU judgments) the outline additionally lists each numbered judgment paragraph as `"Paragraph N"` (level 4); numbered-paragraph detection is language-independent (it keys on the paragraph number, not heading words), so you can get the offset of e.g. paragraph 72 of a judgment and jump `eurlex_fetch` straight to it. Each outline entry has `level` (1=part/title/annex, 2=chapter, 3=section, 4=article/paragraph), `label` (e.g. `"Article 5"`, `"Paragraph 72"`), `title`, and `offset`; `total_headings` is the full count and the list is capped at 300 for very large acts (`truncated=true`).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
