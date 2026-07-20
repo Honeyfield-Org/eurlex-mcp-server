@@ -10,7 +10,7 @@ describe('caseLawSchema', () => {
     const parsed = caseLawSchema.parse({ query: 'Schrems' })
     expect(parsed.court).toBe('any')
     expect(parsed.type).toBe('any')
-    expect(parsed.language).toBe('DEU')
+    expect(parsed.language).toBe('ENG')
     expect(parsed.limit).toBe(10)
   })
 

@@ -5,7 +5,7 @@ describe('citationsSchema', () => {
   it('C1 – accepts valid CELEX-ID with defaults', () => {
     const result = citationsSchema.parse({ celex_id: '32024R1689' })
     expect(result.celex_id).toBe('32024R1689')
-    expect(result.language).toBe('DEU')
+    expect(result.language).toBe('ENG')
     expect(result.direction).toBe('both')
     expect(result.limit).toBe(20)
   })

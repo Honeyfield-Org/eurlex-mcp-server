@@ -47,7 +47,7 @@ describe('fetchSchema', () => {
   it('F9 – base schema accepts an eli input', () => {
     const result = fetchSchema.parse({ eli: 'reg/2016/679' })
     expect(result.eli).toBe('reg/2016/679')
-    expect(result.language).toBe('DEU')
+    expect(result.language).toBe('ENG')
   })
 
   it('F10 – base schema accepts an oj_ref input', () => {

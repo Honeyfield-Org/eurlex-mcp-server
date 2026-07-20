@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { RESOURCE_TYPES } from '../constants.js';
-import { LANGUAGE_ENUM } from '../languages.js';
+import { DEFAULT_LANGUAGE, LANGUAGE_ENUM } from '../languages.js';
 
 export const searchSchema = z
   .object({
@@ -18,7 +18,7 @@ export const searchSchema = z
       .describe(
         'Document type filter: REG=regulation, DIR=directive, DEC=decision, JUDG=judgment, REG_IMPL=implementing regulation, REG_DEL=delegated regulation, RECO=recommendation, ORDER=court order, OPIN_AG=Advocate General opinion',
       ),
-    language: LANGUAGE_ENUM.default('DEU').describe(
+    language: LANGUAGE_ENUM.default(DEFAULT_LANGUAGE).describe(
       'Language of the title and full text, as a Cellar 3-letter code (any of the 24 official EU languages, e.g. DEU, ENG, FRA, POL, SPA)',
     ),
     limit: z.number().int().min(1).max(50).default(10).describe('Maximum number of results'),

@@ -3,7 +3,6 @@ import {
   CELLAR_REST_BASE,
   CELLAR_SUMMARY_MIME,
   EURLEX_BASE,
-  DEFAULT_LANGUAGE,
   DEFAULT_LIMIT,
   REQUEST_TIMEOUT_MS,
   MAX_RETRIES,
@@ -17,7 +16,7 @@ import {
   METADATA_CACHE_MAX_ENTRIES,
 } from '../constants.js';
 import { MS_ALPHA2_TO_ALPHA3, MS_ALPHA3_TO_ALPHA2 } from '../countries.js';
-import { LANGUAGE_ISO_MAP } from '../languages.js';
+import { DEFAULT_LANGUAGE, LANGUAGE_ISO_MAP } from '../languages.js';
 import type {
   SparqlQueryParams,
   SearchResult,

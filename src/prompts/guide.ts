@@ -121,7 +121,8 @@ Legislative summaries (LEGISSUM):
 ## Languages
 The language parameter accepts all 24 official EU languages, given as the Cellar
 3-letter code: BUL, SPA, CES, DAN, DEU, EST, ELL, ENG, FRA, GLE, HRV, ITA, LAV,
-LIT, HUN, MLT, NLD, POL, POR, RON, SLK, SLV, FIN, SWE (default DEU). Titles are
+LIT, HUN, MLT, NLD, POL, POR, RON, SLK, SLV, FIN, SWE (default ENG, configurable
+via the EURLEX_DEFAULT_LANGUAGE env var). Titles are
 language-specific — match your search term to the chosen language. EuroVoc concept
 labels (eurlex_by_eurovoc) also prefer that language, but automatically fall back
 across all 24 official languages if it has no match, so any-language labels work.

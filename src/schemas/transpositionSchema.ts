@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { CELEX_REGEX } from '../constants.js';
 import { COUNTRY_ENUM } from '../countries.js';
-import { LANGUAGE_ENUM } from '../languages.js';
+import { DEFAULT_LANGUAGE, LANGUAGE_ENUM } from '../languages.js';
 
 /**
  * Input schema for `eurlex_transposition`. Unlike caseLaw/consolidated, there
@@ -21,7 +21,7 @@ export const transpositionSchema = z
     country: COUNTRY_ENUM.optional().describe(
       'Optional filter: EU 2-letter member-state code (ISO 3166-1 alpha-2, except Greece which is "EL" in EU usage), e.g. "DE", "AT", "FR". Omit to return measures from all member states.',
     ),
-    language: LANGUAGE_ENUM.default('DEU').describe(
+    language: LANGUAGE_ENUM.default(DEFAULT_LANGUAGE).describe(
       "Sets the locale of each result's eurlex_url (as a Cellar 3-letter code, any of the 24 official EU languages). NOTE: a national implementing measure's title is stored only in the member state's own official language and is returned as-is — this field does NOT translate titles.",
     ),
     limit: z

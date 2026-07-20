@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { CELEX_REGEX } from '../constants.js';
-import { LANGUAGE_ENUM } from '../languages.js';
+import { DEFAULT_LANGUAGE, LANGUAGE_ENUM } from '../languages.js';
 
 export const structureSchema = z
   .object({
@@ -26,7 +26,7 @@ export const structureSchema = z
       .describe(
         'Official Journal reference in the post-2023 scheme, e.g. "OJ:L_202401689" (AI Act). Resolved to a CELEX ID via Cellar. Provide exactly one of celex_id, eli, or oj_ref.',
       ),
-    language: LANGUAGE_ENUM.default('DEU').describe(
+    language: LANGUAGE_ENUM.default(DEFAULT_LANGUAGE).describe(
       'Language of the document to outline, as a Cellar 3-letter code (any of the 24 official EU languages, e.g. DEU, ENG, FRA). Heading labels are language-specific; the returned offsets index the plain text of THIS language, so pass the same language to the follow-up eurlex_fetch call.',
     ),
   })

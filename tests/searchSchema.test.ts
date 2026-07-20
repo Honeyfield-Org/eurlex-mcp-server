@@ -103,8 +103,8 @@ describe('searchSchema', () => {
     expect(() => searchSchema.parse({ query: 'test', language: 'POLISH' })).toThrow(ZodError)
   })
 
-  it('SS21 – defaults language to DEU', () => {
-    expect(searchSchema.parse({ query: 'test' }).language).toBe('DEU')
+  it('SS21 – defaults language to ENG', () => {
+    expect(searchSchema.parse({ query: 'test' }).language).toBe('ENG')
   })
 
   // ---- strict mode ----

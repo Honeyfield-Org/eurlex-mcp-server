@@ -19,7 +19,6 @@ export const CELLAR_SUMMARY_MIME = 'application/xhtml+xml;type=xhtml5';
  * anchored query bounded. total_summaries is derived from the returned rows.
  */
 export const SUMMARY_LOOKUP_LIMIT = 100;
-export const DEFAULT_LANGUAGE = 'DEU';
 export const DEFAULT_LIMIT = 10;
 // Pagination-window bounds shared by the max_chars param of eurlex_fetch,
 // eurlex_consolidated and eurlex_summary: min 1000, default 20000, hard cap

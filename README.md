@@ -40,7 +40,7 @@ Ask your AI assistant questions like:
 - **Flexible identifiers** -- `eurlex_fetch`, `eurlex_metadata`, and `eurlex_structure` accept a CELEX ID, an ELI (e.g. `reg/2016/679`), or a post-2023 Official Journal reference (e.g. `OJ:L_202401689`)
 - **Structured output** -- every tool returns a machine-readable `structuredContent` payload validated against a published `outputSchema`, alongside the JSON text block
 - **Offset-based pagination** -- `eurlex_fetch`, `eurlex_consolidated`, and `eurlex_summary` return `next_offset` so long documents can be read in successive calls
-- **All 24 official EU languages** -- request titles and full text in any official EU language (default German)
+- **All 24 official EU languages** -- request titles and full text in any official EU language (default English; configurable via `EURLEX_DEFAULT_LANGUAGE`)
 - **No API key required** -- uses the public EUR-Lex Cellar SPARQL endpoint
 - **Resilient by default** -- automatic retry with backoff on transient Cellar errors, and in-process caching of EuroVoc labels, consolidated-CELEX lookups, and metadata to cut latency on repeat requests
 
@@ -67,11 +67,18 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "eurlex": {
       "command": "npx",
-      "args": ["-y", "eurlex-mcp-server"]
+      "args": ["-y", "eurlex-mcp-server"],
+      "env": {
+        "EURLEX_DEFAULT_LANGUAGE": "DEU"
+      }
     }
   }
 }
 ```
+
+The `env` block is optional. Set `EURLEX_DEFAULT_LANGUAGE` to change the default language every
+tool uses when no `language` parameter is passed -- see [Default language](#default-language) below.
+The other MCP clients below accept the same `env` block.
 
 ### Claude Code
 
@@ -124,6 +131,23 @@ Add to `~/.windsurf/mcp.json`:
 }
 ```
 
+### Default language
+
+Language-aware tools default to English (`ENG`) when no `language` parameter is passed. Set the
+`EURLEX_DEFAULT_LANGUAGE` environment variable to change that default to any of the 24 official EU
+languages, given as a Cellar 3-letter code (case-insensitive, e.g. `DEU`, `FRA`, `POL`). It is read
+once at startup and applies to **both transports** (stdio and HTTP); for an HTTP deployment it sets
+the default for every session of the process. An unset or invalid value falls back to `ENG` (an
+invalid value also logs a one-line warning to stderr). A per-call `language` parameter always
+overrides this default.
+
+```bash
+EURLEX_DEFAULT_LANGUAGE=DEU
+```
+
+For stdio MCP clients, set it via the `env` block in the client config (see the Claude Desktop
+example above).
+
 ### HTTP Transport (Remote Deployments)
 
 When running the server over HTTP (`pnpm start:http` / `dist/http.js`) instead of stdio, it's exposed
@@ -134,6 +158,7 @@ environment variables:
 |----------|----------|--------------|
 | `MCP_ALLOWED_HOSTS` | no (but strongly recommended for public deployments) | Comma-separated list of allowed `Host` header values. Must match the header **exactly**, including the port if the server isn't reachable on the default HTTP(S) port. |
 | `MCP_ALLOWED_ORIGINS` | no | Comma-separated list of allowed `Origin` header values. Only enforced when `MCP_ALLOWED_ORIGINS` is set together with `MCP_ALLOWED_HOSTS`. |
+| `EURLEX_DEFAULT_LANGUAGE` | no | Default language (Cellar 3-letter code, case-insensitive) used when a tool call omits `language`; unset or invalid falls back to `ENG`. Read once at startup and applied to all sessions. **Also honored under stdio** -- see [Default language](#default-language). |
 
 **Important:** If your server runs behind a reverse proxy or load balancer, ensure it forwards the original `Host` header unmodified (e.g. nginx `proxy_set_header Host $host;`), otherwise `MCP_ALLOWED_HOSTS` validation will reject all legitimate traffic — the SDK compares the raw Host header as an exact string.
 
@@ -149,7 +174,7 @@ deployment should set `MCP_ALLOWED_HOSTS` to its public hostname(s).
 
 ## Tool Reference
 
-The server exposes **11 read-only tools**. Every tool returns both a JSON text block and a machine-readable `structuredContent` payload validated against a published `outputSchema`, so MCP clients can consume either representation. Tools that return titles or document text accept a `language` parameter taking any of the 24 official EU languages as a Cellar 3-letter code (default `DEU`): `BUL`, `SPA`, `CES`, `DAN`, `DEU`, `EST`, `ELL`, `ENG`, `FRA`, `GLE`, `HRV`, `ITA`, `LAV`, `LIT`, `HUN`, `MLT`, `NLD`, `POL`, `POR`, `RON`, `SLK`, `SLV`, `FIN`, `SWE`.
+The server exposes **11 read-only tools**. Every tool returns both a JSON text block and a machine-readable `structuredContent` payload validated against a published `outputSchema`, so MCP clients can consume either representation. Tools that return titles or document text accept a `language` parameter taking any of the 24 official EU languages as a Cellar 3-letter code (default `ENG`, or whatever `EURLEX_DEFAULT_LANGUAGE` is set to): `BUL`, `SPA`, `CES`, `DAN`, `DEU`, `EST`, `ELL`, `ENG`, `FRA`, `GLE`, `HRV`, `ITA`, `LAV`, `LIT`, `HUN`, `MLT`, `NLD`, `POL`, `POR`, `RON`, `SLK`, `SLV`, `FIN`, `SWE`.
 
 | Tool | Purpose |
 |------|---------|
@@ -173,7 +198,7 @@ Searches EU legal acts by **title substring** -- a contiguous, case-insensitive 
 |-----------|------|----------|---------|-------------|
 | `query` | string | yes | -- | Title substring to match (3-500 chars), e.g. `"artificial intelligence high risk"` |
 | `resource_type` | string | no | `"any"` | Document type filter: `REG`, `DIR`, `DEC`, `JUDG`, `REG_IMPL`, `REG_DEL`, `DIR_IMPL`, `DIR_DEL`, `DEC_IMPL`, `DEC_DEL`, `ORDER`, `OPIN_AG`, `RECO`, `any` |
-| `language` | string | no | `"DEU"` | Language for titles and full text: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
+| `language` | string | no | `"ENG"` | Language for titles and full text: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
 | `limit` | number | no | `10` | Max results (1-50) |
 | `date_from` | string | no | -- | Filter from date, format: `YYYY-MM-DD` |
 | `date_to` | string | no | -- | Filter to date, format: `YYYY-MM-DD` |
@@ -187,7 +212,7 @@ Retrieve the full text of a document, identified by **exactly one** of `celex_id
 | `celex_id` | string | no\* | -- | CELEX identifier, e.g. `"32024R1689"` for the AI Act |
 | `eli` | string | no\* | -- | European Legislation Identifier, short (`reg/2016/679`) or full (`http://data.europa.eu/eli/reg/2016/679/oj`); resolved to a CELEX via Cellar |
 | `oj_ref` | string | no\* | -- | Post-2023 Official Journal reference, e.g. `"OJ:L_202401689"` (AI Act); resolved to a CELEX via Cellar |
-| `language` | string | no | `"DEU"` | Language: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
+| `language` | string | no | `"ENG"` | Language: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
 | `format` | string | no | `"xhtml"` | Output format: `xhtml` (structured) or `plain` (tags stripped, whitespace collapsed, entities decoded) |
 | `max_chars` | number | no | `20000` | Max characters returned per call (1000-50000) |
 | `offset` | number | no | `0` | Character offset into the processed document, for pagination |
@@ -203,7 +228,7 @@ Retrieve structured metadata for a document: document/entry-into-force/end-of-va
 | `celex_id` | string | no\* | -- | CELEX identifier, e.g. `"32024R1689"` |
 | `eli` | string | no\* | -- | European Legislation Identifier, short or full form; resolved to a CELEX via Cellar |
 | `oj_ref` | string | no\* | -- | Post-2023 Official Journal reference, e.g. `"OJ:L_202401689"`; resolved to a CELEX via Cellar |
-| `language` | string | no | `"DEU"` | Language for titles and EuroVoc labels: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
+| `language` | string | no | `"ENG"` | Language for titles and EuroVoc labels: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
 
 \* Provide exactly one of `celex_id`, `eli`, or `oj_ref`.
 
@@ -220,7 +245,7 @@ Explore the citation graph of a document -- which acts it cites, which acts cite
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `celex_id` | string | yes | -- | CELEX identifier, e.g. `"32024R1689"` |
-| `language` | string | no | `"DEU"` | Language for titles: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
+| `language` | string | no | `"ENG"` | Language for titles: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
 | `direction` | string | no | `"both"` | `cites` (outgoing), `cited_by` (incoming), or `both` |
 | `limit` | number | no | `20` | Max results (1-100) |
 
@@ -234,7 +259,7 @@ Find documents by EuroVoc thesaurus concept (label or URI).
 |-----------|------|----------|---------|-------------|
 | `concept` | string | yes | -- | EuroVoc concept: label (e.g. `"artificial intelligence"`) or URI (e.g. `"http://eurovoc.europa.eu/4424"`) |
 | `resource_type` | string | no | `"any"` | Document type filter (same values as `eurlex_search`) |
-| `language` | string | no | `"DEU"` | Language: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
+| `language` | string | no | `"ENG"` | Language: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
 | `limit` | number | no | `10` | Max results (1-50) |
 
 ### eurlex_consolidated
@@ -247,7 +272,7 @@ Retrieve the consolidated (in-force) version of a regulation, directive, or deci
 | `doc_type` | string | no* | -- | Document type: `reg` (regulation), `dir` (directive), `dec` (decision). Alternative to `celex_id`; provide together with `year` and `number` |
 | `year` | number | no* | -- | Year of the act (1950-2100), e.g. `2024`. Required together with `doc_type` and `number` when `celex_id` is not used |
 | `number` | number | no* | -- | Document number, e.g. `1689`. Required together with `doc_type` and `year` when `celex_id` is not used |
-| `language` | string | no | `"DEU"` | Language: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
+| `language` | string | no | `"ENG"` | Language: any of the 24 official EU languages (Cellar 3-letter code, e.g. `DEU`, `ENG`, `FRA`, `POL`, `SPA`) |
 | `format` | string | no | `"xhtml"` | Output format: `xhtml` or `plain` |
 | `max_chars` | number | no | `20000` | Max characters returned per call (1000-50000) |
 | `offset` | number | no | `0` | Character offset into the processed document, for pagination |
@@ -266,7 +291,7 @@ Search Court of Justice of the EU case law -- judgments, orders, and Advocate Ge
 | `related_celex` | string | no\* | -- | CELEX of a legal act (e.g. `"32016R0679"` GDPR); returns the case law interpreting that act |
 | `court` | string | no | `"any"` | `COURT_JUSTICE`, `GENERAL_COURT`, or `any` |
 | `type` | string | no | `"any"` | `JUDG`, `ORDER`, `OPIN_AG`, or `any` |
-| `language` | string | no | `"DEU"` | Language of the title: any of the 24 official EU languages (Cellar 3-letter code) |
+| `language` | string | no | `"ENG"` | Language of the title: any of the 24 official EU languages (Cellar 3-letter code) |
 | `limit` | number | no | `10` | Max results (1-50) |
 | `date_from` | string | no | -- | Filter from this judgment date, format `YYYY-MM-DD` |
 | `date_to` | string | no | -- | Filter up to this judgment date, format `YYYY-MM-DD` |
@@ -281,7 +306,7 @@ List the national implementing measures (NIMs) EU member states enacted to trans
 |-----------|------|----------|---------|-------------|
 | `celex_id` | string | yes | -- | Sector-3 CELEX of the **directive**, e.g. `"32022L2555"` (NIS2) or `"31995L0046"` (Data Protection Directive) |
 | `country` | string | no | -- | Filter by EU 2-letter member-state code (ISO 3166-1 alpha-2, except Greece = `EL`), e.g. `"DE"`, `"FR"`. Omit for all member states |
-| `language` | string | no | `"DEU"` | Sets the locale of each `eurlex_url` (Cellar 3-letter code); does **not** translate NIM titles |
+| `language` | string | no | `"ENG"` | Sets the locale of each `eurlex_url` (Cellar 3-letter code); does **not** translate NIM titles |
 | `limit` | number | no | `20` | Max measures returned (1-100) |
 
 ### eurlex_structure
@@ -293,7 +318,7 @@ Return the outline (table of contents) of an act -- its chapters, sections, arti
 | `celex_id` | string | no\* | -- | CELEX identifier, e.g. `"32024R1689"` |
 | `eli` | string | no\* | -- | European Legislation Identifier, short or full form; resolved to a CELEX via Cellar |
 | `oj_ref` | string | no\* | -- | Post-2023 Official Journal reference, e.g. `"OJ:L_202401689"`; resolved to a CELEX via Cellar |
-| `language` | string | no | `"DEU"` | Language of the document to outline (Cellar 3-letter code); heading labels and offsets are language-specific |
+| `language` | string | no | `"ENG"` | Language of the document to outline (Cellar 3-letter code); heading labels and offsets are language-specific |
 
 \* Provide exactly one of `celex_id`, `eli`, or `oj_ref`.
 
@@ -304,7 +329,7 @@ Return the EU's own plain-language "summary of legislation" (LEGISSUM) for an ac
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `celex_id` | string | yes | -- | CELEX of the act to summarize, e.g. `"32016R0679"` (GDPR) or `"32022R2065"` (Digital Services Act) |
-| `language` | string | no | `"DEU"` | Language of the summary (Cellar 3-letter code); summaries are typically available in all 24 languages |
+| `language` | string | no | `"ENG"` | Language of the summary (Cellar 3-letter code); summaries are typically available in all 24 languages |
 | `max_chars` | number | no | `20000` | Max characters returned per call (1000-50000) |
 | `offset` | number | no | `0` | Character offset into the processed summary, for pagination |
 
