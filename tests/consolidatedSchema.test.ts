@@ -4,7 +4,7 @@ import { consolidatedSchema, consolidatedInputSchema } from '../src/schemas/cons
 describe('consolidatedSchema', () => {
   it('CO1 – accepts type/year/number with defaults', () => {
     const result = consolidatedSchema.parse({ doc_type: 'reg', year: 2024, number: 1689 })
-    expect(result.language).toBe('DEU')
+    expect(result.language).toBe('ENG')
     expect(result.format).toBe('xhtml')
   })
 

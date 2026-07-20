@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
 import { CELEX_REGEX } from '../constants.js';
-import { LANGUAGE_ENUM } from '../languages.js';
+import { DEFAULT_LANGUAGE, LANGUAGE_ENUM } from '../languages.js';
 
 export const citationsSchema = z
   .object({
     celex_id: z.string().regex(CELEX_REGEX).describe("CELEX identifier, e.g. '32024R1689'"),
-    language: LANGUAGE_ENUM.default('DEU').describe(
+    language: LANGUAGE_ENUM.default(DEFAULT_LANGUAGE).describe(
       'Language of the title, as a Cellar 3-letter code (any of the 24 official EU languages, e.g. DEU, ENG, FRA, POL, SPA)',
     ),
     direction: z

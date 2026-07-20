@@ -5,7 +5,7 @@ describe('summarySchema', () => {
   it('SS1 – accepts a valid CELEX with defaults for the rest', () => {
     const parsed = summarySchema.parse({ celex_id: '32016R0679' })
     expect(parsed.celex_id).toBe('32016R0679')
-    expect(parsed.language).toBe('DEU') // default
+    expect(parsed.language).toBe('ENG') // default
     expect(parsed.max_chars).toBe(20000) // default
     expect(parsed.offset).toBe(0) // default
   })

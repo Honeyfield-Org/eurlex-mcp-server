@@ -4,7 +4,7 @@ import { transpositionSchema } from '../src/schemas/transpositionSchema.js'
 describe('transpositionSchema', () => {
   it('TS1 – applies defaults for language and limit', () => {
     const parsed = transpositionSchema.parse({ celex_id: '32022L2555' })
-    expect(parsed.language).toBe('DEU')
+    expect(parsed.language).toBe('ENG')
     expect(parsed.limit).toBe(20)
     expect(parsed.country).toBeUndefined()
   })

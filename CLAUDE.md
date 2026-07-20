@@ -71,7 +71,7 @@ src/
 ├── server.ts             # createServer(): registers 11 tools + the guide prompt
 ├── version.ts            # Shared VERSION constant (from package.json)
 ├── constants.ts          # Endpoints, timeouts, cache TTLs, CELEX_REGEX, RESOURCE_TYPES, SPARQL limits
-├── languages.ts          # EU_LANGUAGES (24) — single source of truth; LANGUAGE_ENUM, LANGUAGE_ISO_MAP
+├── languages.ts          # EU_LANGUAGES (24) — single source of truth; LANGUAGE_ENUM, LANGUAGE_ISO_MAP, DEFAULT_LANGUAGE
 ├── countries.ts          # EU member states (27) — single source of truth; alpha2↔alpha3, COUNTRY_ENUM
 ├── types.ts              # ToolResult<T> + per-tool output/param types
 ├── utils.ts              # processContent / stripHtml / parseOutline / sortDedupSlice / toolError / toCallToolResult
@@ -105,8 +105,10 @@ Follow the schema → tool → client → registration chain:
 
 1. **Schema** (`src/schemas/<name>Schema.ts`): a `.strict()` Zod input schema
    and an output schema. Use the shared **`LANGUAGE_ENUM`** for any `language`
-   field (`.default('DEU')`) and `COUNTRY_ENUM` for member-state filters — do
-   not re-declare these enums. Object-level invariants like "exactly one of
+   field (`.default(DEFAULT_LANGUAGE)`) and `COUNTRY_ENUM` for member-state
+   filters — do not re-declare these enums. **`DEFAULT_LANGUAGE`** (exported from
+   `languages.ts`) is resolved once at startup from the `EURLEX_DEFAULT_LANGUAGE`
+   env var, falling back to `ENG`; never hardcode a default language literal. Object-level invariants like "exactly one of
    celex_id / eli / oj_ref" go in a `superRefine` (the SDK strips whole-object
    refinements, so the handler must re-validate with an explicit `.parse()`).
 2. **Client method** (`cellarClient.ts`): build the SPARQL/REST call here. Every
@@ -212,6 +214,7 @@ then drives `release.yml`:
 | `PORT` | HTTP listen port (default **3001**; Dockerfile `EXPOSE`s 3001). |
 | `MCP_ALLOWED_HOSTS` | Comma-separated exact `Host` allow-list. **Opt-in** DNS-rebinding protection: unset → protection off + a one-line startup warning. Set it on any public deployment. |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated `Origin` allow-list; only enforced together with `MCP_ALLOWED_HOSTS`. |
+| `EURLEX_DEFAULT_LANGUAGE` | Default language (Cellar 3-letter code, case-insensitive) tools use when `language` is omitted; unset or invalid → `ENG` (invalid logs a one-line stderr warning). Read once at startup; **not HTTP-only** — also honored under stdio, and applies to all sessions of an HTTP process. Feeds `DEFAULT_LANGUAGE` in `languages.ts`. |
 
 DNS-rebinding protection compares the **raw** `Host` header as an exact string,
 so a reverse proxy in front must forward `Host` **unchanged** (e.g. nginx
@@ -221,7 +224,8 @@ every request is rejected.
 ## MCP Tools (11)
 
 All read-only. Language-aware tools accept any of the 24 official EU languages as
-a Cellar 3-letter code (default `DEU`); the list is `EU_LANGUAGES` in
+a Cellar 3-letter code (default `ENG`, or `EURLEX_DEFAULT_LANGUAGE` if set — see
+`DEFAULT_LANGUAGE` in `languages.ts`); the list is `EU_LANGUAGES` in
 `languages.ts`.
 
 | Tool | Purpose |

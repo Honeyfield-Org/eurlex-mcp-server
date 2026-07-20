@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { CELEX_REGEX } from '../constants.js';
-import { LANGUAGE_ENUM } from '../languages.js';
+import { DEFAULT_LANGUAGE, LANGUAGE_ENUM } from '../languages.js';
 
 /**
  * European Case Law Identifier, e.g. "ECLI:EU:C:2014:317" (Google Spain) or
@@ -66,7 +66,7 @@ export const caseLawSchema = z
       .describe(
         'Procedure type filter: JUDG=judgment, ORDER=court order, OPIN_AG=Advocate General opinion, any=all case-law document types (incl. procedural notices).',
       ),
-    language: LANGUAGE_ENUM.default('DEU').describe(
+    language: LANGUAGE_ENUM.default(DEFAULT_LANGUAGE).describe(
       'Language of the title, as a Cellar 3-letter code (any of the 24 official EU languages, e.g. DEU, ENG, FRA, POL, SPA). A ruling with no title in this language yields no result.',
     ),
     limit: z.number().int().min(1).max(50).default(10).describe('Maximum number of results'),

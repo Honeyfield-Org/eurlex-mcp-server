@@ -61,35 +61,42 @@
   },
   "packageManager": "pnpm@10.30.1",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.0",
-    "express": "^4.18.0",
-    "express-rate-limit": "^8.3.1",
-    "zod": "^3.22.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^4.22.2",
+    "express-rate-limit": "^8.6.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.4.4",
-    "@commitlint/config-conventional": "^20.4.4",
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
     "@eslint/js": "^10.0.1",
-    "@types/express": "^4.17.0",
-    "@types/node": "^20.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.57.0",
-    "@typescript-eslint/parser": "^8.57.0",
-    "@vitest/coverage-v8": "^2.1.9",
-    "eslint": "^10.0.3",
+    "@types/express": "^4.17.25",
+    "@types/node": "^20.19.43",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-import-x": "^4.16.2",
+    "eslint-plugin-import-x": "^4.17.1",
     "husky": "^9.1.7",
-    "lint-staged": "^16.3.3",
-    "prettier": "^3.8.1",
-    "tsx": "^4.0.0",
-    "typescript": "^5.3.0",
-    "typescript-eslint": "^8.57.0",
-    "vitest": "^2.0.0"
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.9.5",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^3.2.7"
   },
   "lint-staged": {
     "src/**/*.ts": [
       "prettier --write",
       "eslint --fix"
     ]
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": ">=6.4.3",
+      "esbuild": ">=0.25.0",
+      "postcss": ">=8.5.10"
+    }
   }
 }

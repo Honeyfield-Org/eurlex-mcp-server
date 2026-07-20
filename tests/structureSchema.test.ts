@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { structureSchema, structureInputSchema } from '../src/schemas/structureSchema.js'
 
 describe('structureSchema (per-field shape)', () => {
-  it('SS1 – defaults language to DEU', () => {
-    expect(structureSchema.parse({ celex_id: '32024R1689' }).language).toBe('DEU')
+  it('SS1 – defaults language to ENG', () => {
+    expect(structureSchema.parse({ celex_id: '32024R1689' }).language).toBe('ENG')
   })
 
   it('SS2 – accepts a valid CELEX and rejects a malformed one', () => {

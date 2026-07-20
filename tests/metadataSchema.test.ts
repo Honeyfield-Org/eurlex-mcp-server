@@ -6,11 +6,11 @@ import { metadataSchema, metadataInputSchema } from '../src/schemas/metadataSche
 // Tests M1-M6: metadataSchema validation
 // ===========================================================================
 describe('metadataSchema', () => {
-  it('M1 – valid CELEX ID with default language → parse succeeds, language defaults to "DEU"', () => {
+  it('M1 – valid CELEX ID with default language → parse succeeds, language defaults to "ENG"', () => {
     const result = metadataSchema.parse({ celex_id: '32024R1689' })
 
     expect(result.celex_id).toBe('32024R1689')
-    expect(result.language).toBe('DEU')
+    expect(result.language).toBe('ENG')
   })
 
   it('M2 – valid CELEX ID with explicit language "ENG" → parse succeeds', () => {

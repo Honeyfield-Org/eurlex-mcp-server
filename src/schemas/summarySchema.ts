@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { CELEX_REGEX, MAX_CHARS_DEFAULT, MAX_CHARS_LIMIT, MAX_CHARS_MIN } from '../constants.js';
-import { LANGUAGE_ENUM } from '../languages.js';
+import { DEFAULT_LANGUAGE, LANGUAGE_ENUM } from '../languages.js';
 
 /**
  * Input schema for `eurlex_summary`. Like transpositionSchema, `celex_id` is a
@@ -17,7 +17,7 @@ export const summarySchema = z
       .describe(
         'CELEX identifier of the EU act to summarize, e.g. "32016R0679" (GDPR) or "32022R2065" (Digital Services Act). LEGISSUM summaries exist for several thousand major acts; many acts have none.',
       ),
-    language: LANGUAGE_ENUM.default('DEU').describe(
+    language: LANGUAGE_ENUM.default(DEFAULT_LANGUAGE).describe(
       'Language of the summary text, as a Cellar 3-letter code (any of the 24 official EU languages, e.g. DEU, ENG, FRA, POL, SPA). Summaries are typically available in all 24 languages.',
     ),
     max_chars: z

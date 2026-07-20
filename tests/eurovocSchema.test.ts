@@ -6,7 +6,7 @@ describe('eurovocSchema', () => {
     const result = eurovocSchema.parse({ concept: 'artificial intelligence' })
     expect(result.concept).toBe('artificial intelligence')
     expect(result.resource_type).toBe('any')
-    expect(result.language).toBe('DEU')
+    expect(result.language).toBe('ENG')
     expect(result.limit).toBe(10)
   })
 

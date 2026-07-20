@@ -69,7 +69,7 @@ export const LANGUAGE_CODES = EU_LANGUAGES.map((l) => l.code) as [LanguageCode, 
 
 /**
  * The one Zod language enum, shared by every schema (replaces six hardcoded
- * `z.enum(['DEU','ENG','FRA'])`). Callers add `.default('DEU').describe(...)`.
+ * `z.enum(['DEU','ENG','FRA'])`). Callers add `.default(DEFAULT_LANGUAGE).describe(...)`.
  */
 export const LANGUAGE_ENUM = z.enum(LANGUAGE_CODES);
 
@@ -82,3 +82,44 @@ export const LANGUAGE_ENUM = z.enum(LANGUAGE_CODES);
 export const LANGUAGE_ISO_MAP: Record<string, string> = Object.fromEntries(
   EU_LANGUAGES.map((l) => [l.code, l.iso]),
 );
+
+/** Name of the env var that overrides the built-in default language. */
+export const DEFAULT_LANGUAGE_ENV_VAR = 'EURLEX_DEFAULT_LANGUAGE';
+
+/** Built-in fallback language when no valid override is supplied. */
+const FALLBACK_LANGUAGE: LanguageCode = 'ENG';
+
+/**
+ * Resolves the process-wide default language from a raw env-var value.
+ *
+ * - `undefined`, empty, or whitespace-only → the built-in fallback (`ENG`),
+ *   silently (an unset env var is the normal case, not a misconfiguration).
+ * - A valid Cellar code (case-insensitive, surrounding whitespace trimmed) →
+ *   that code, normalized to upper case.
+ * - Anything else → the fallback, plus a single warning line on **stderr**
+ *   (never stdout — the stdio transport reserves stdout for MCP protocol
+ *   frames). Never throws.
+ */
+export function resolveDefaultLanguage(raw: string | undefined): LanguageCode {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return FALLBACK_LANGUAGE;
+  }
+  const normalized = trimmed.toUpperCase();
+  const match = EU_LANGUAGES.find((l) => l.code === normalized);
+  if (match) {
+    return match.code;
+  }
+  console.error(
+    `[eurlex-mcp] Ignoring invalid ${DEFAULT_LANGUAGE_ENV_VAR}="${raw}"; ` +
+      `expected one of the 24 Cellar language codes. Falling back to ${FALLBACK_LANGUAGE}.`,
+  );
+  return FALLBACK_LANGUAGE;
+}
+
+/**
+ * The process-wide default language for every language-aware tool schema.
+ * Evaluated once at module load so schemas capture it at startup; override
+ * with the `EURLEX_DEFAULT_LANGUAGE` env var (built-in default `ENG`).
+ */
+export const DEFAULT_LANGUAGE = resolveDefaultLanguage(process.env[DEFAULT_LANGUAGE_ENV_VAR]);

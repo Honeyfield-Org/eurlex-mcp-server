@@ -5,12 +5,12 @@ import {
   SPARQL_ENDPOINT,
   CELLAR_REST_BASE,
   EURLEX_BASE,
-  DEFAULT_LANGUAGE,
   DEFAULT_LIMIT,
   MAX_CHARS_DEFAULT,
   MAX_CHARS_LIMIT,
   REQUEST_TIMEOUT_MS,
 } from '../../src/constants.js'
+import { DEFAULT_LANGUAGE } from '../../src/languages.js'
 import type { SparqlQueryParams, SearchResult, FetchResult } from '../../src/types.js'
 
 const ROOT = resolve(import.meta.dirname, '../..')
@@ -82,7 +82,7 @@ describe('Phase 1 Eval – Foundation', () => {
     })
 
     it('exports DEFAULT_LANGUAGE', () => {
-      expect(DEFAULT_LANGUAGE).toBe('DEU')
+      expect(DEFAULT_LANGUAGE).toBe('ENG')
     })
 
     it('exports DEFAULT_LIMIT as a number', () => {
