@@ -61,6 +61,28 @@ describe('stripHtml()', () => {
     expect(result).toContain('Article 1')
     expect(result).toContain('Article 2')
   })
+
+  it('removes script blocks whose end tag has whitespace before ">"', () => {
+    expect(stripHtml('a<script>x()</script >b')).toBe('ab')
+  })
+
+  it('removes style blocks whose end tag has whitespace before ">"', () => {
+    expect(stripHtml('a<style>p{}</style\n>b')).toBe('ab')
+  })
+
+  it('does not leave a live <script> tag behind after removing a nested/split tag', () => {
+    // A single pass would remove only the inner <script>, reconstructing a live
+    // <script> tag from the split fragments. The fixpoint loop must not do that.
+    // The leftover "<scr" fragment has no closing ">", so it is inert text, not a
+    // tag — matching it too would require treating a bare "<" with no ">" as a tag,
+    // which would wrongly eat real text like "Value < 10" (verified: it does).
+    expect(stripHtml('a<scr<script>ipt>alert(1)</script>b')).not.toMatch(/<script/i)
+  })
+
+  it('is idempotent', () => {
+    const once = stripHtml('<p>Hi <b>there</b></p><script>x</script>')
+    expect(stripHtml(once)).toBe(once)
+  })
 })
 
 describe('toolError()', () => {
