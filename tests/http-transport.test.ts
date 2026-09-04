@@ -109,6 +109,44 @@ describe('HTTP transport', () => {
     expect(body.error).toMatch(/initialize/i)
   })
 
+  test('POST /mcp with an unknown session ID and a non-initialize body returns 404', async () => {
+    const srv = await startServer()
+    close = srv.close
+    const res = await fetch(`${srv.baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'mcp-session-id': 'stale-session-from-previous-deploy',
+        Accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/list' }),
+    })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({
+      error:
+        'Unknown or expired session ID — start a new session with an initialize request and no Mcp-Session-Id header',
+    })
+  })
+
+  test('POST /mcp with a stale session ID but an initialize body starts a new session', async () => {
+    const srv = await startServer()
+    close = srv.close
+    const res = await fetch(`${srv.baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'mcp-session-id': 'stale-session-from-previous-deploy',
+        Accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify(INIT_BODY),
+    })
+    expect(res.status).toBe(200)
+    const newId = res.headers.get('mcp-session-id')
+    expect(newId).toBeTruthy()
+    expect(newId).not.toBe('stale-session-from-previous-deploy')
+    expect(srv.transports.has(newId!)).toBe(true)
+  })
+
   // --- POST /mcp initialize ---
 
   test('POST /mcp with initialize returns 200 and session ID', async () => {
@@ -238,20 +276,18 @@ describe('HTTP transport', () => {
 
     const res = await fetch(`${srv.baseUrl}/mcp`)
     expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toMatch(/session/i)
+    expect(await res.json()).toEqual({ error: 'Missing session ID' })
   })
 
-  test('GET /mcp with invalid session ID returns 400', async () => {
+  test('GET /mcp with an unknown session ID returns 404', async () => {
     const srv = await startServer()
     close = srv.close
 
     const res = await fetch(`${srv.baseUrl}/mcp`, {
       headers: { 'mcp-session-id': 'nonexistent' },
     })
-    expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toMatch(/session/i)
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Unknown or expired session ID' })
   })
 
   // --- DELETE /mcp errors ---
@@ -262,11 +298,10 @@ describe('HTTP transport', () => {
 
     const res = await fetch(`${srv.baseUrl}/mcp`, { method: 'DELETE' })
     expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toMatch(/session/i)
+    expect(await res.json()).toEqual({ error: 'Missing session ID' })
   })
 
-  test('DELETE /mcp with invalid session ID returns 400', async () => {
+  test('DELETE /mcp with an unknown session ID returns 404', async () => {
     const srv = await startServer()
     close = srv.close
 
@@ -274,9 +309,8 @@ describe('HTTP transport', () => {
       method: 'DELETE',
       headers: { 'mcp-session-id': 'nonexistent' },
     })
-    expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toMatch(/session/i)
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Unknown or expired session ID' })
   })
 
   // --- DNS rebinding protection (MCP_ALLOWED_HOSTS / MCP_ALLOWED_ORIGINS) ---

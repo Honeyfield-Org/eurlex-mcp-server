@@ -85,15 +85,25 @@ export function createApp(): {
   app.post('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-    if (sessionId && transports.has(sessionId)) {
+    if (sessionId) {
       const transport = transports.get(sessionId);
-      if (!transport) return;
-      lastSeen.set(sessionId, Date.now());
-      await transport.handleRequest(req, res, req.body);
-      return;
-    }
-
-    if (!isInitializeRequest(req.body)) {
+      if (transport) {
+        lastSeen.set(sessionId, Date.now());
+        await transport.handleRequest(req, res, req.body);
+        return;
+      }
+      // Unknown or expired id (previous container after a deploy, or swept after
+      // SESSION_TTL_MS). The MCP Streamable HTTP spec requires 404 here so the client
+      // starts a new session with a fresh initialize request. An initialize request
+      // that still carries a stale id is simply accepted as that new session.
+      if (!isInitializeRequest(req.body)) {
+        res.status(404).json({
+          error:
+            'Unknown or expired session ID — start a new session with an initialize request and no Mcp-Session-Id header',
+        });
+        return;
+      }
+    } else if (!isInitializeRequest(req.body)) {
       res.status(400).json({ error: 'First request must be an initialize request' });
       return;
     }
@@ -129,24 +139,30 @@ export function createApp(): {
   // GET /mcp — SSE on existing session
   app.get('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports.has(sessionId)) {
-      res.status(400).json({ error: 'Invalid or missing session ID' });
+    if (!sessionId) {
+      res.status(400).json({ error: 'Missing session ID' });
       return;
     }
     const transport = transports.get(sessionId);
-    if (!transport) return;
+    if (!transport) {
+      res.status(404).json({ error: 'Unknown or expired session ID' });
+      return;
+    }
     await transport.handleRequest(req, res);
   });
 
   // DELETE /mcp — session cleanup
   app.delete('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports.has(sessionId)) {
-      res.status(400).json({ error: 'Invalid or missing session ID' });
+    if (!sessionId) {
+      res.status(400).json({ error: 'Missing session ID' });
       return;
     }
     const transport = transports.get(sessionId);
-    if (!transport) return;
+    if (!transport) {
+      res.status(404).json({ error: 'Unknown or expired session ID' });
+      return;
+    }
     await transport.handleRequest(req, res);
   });
 
