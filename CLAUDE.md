@@ -206,10 +206,12 @@ then drives `release.yml`:
   (Claude Desktop, Claude Code, `npx eurlex-mcp-server`).
 - **HTTP** (`src/http.ts`): Express + `StreamableHTTPServerTransport`, one
   `McpServer` **per session**. `POST /mcp` creates/reuses a session, `GET /mcp`
-  is the SSE stream, `DELETE /mcp` tears it down; `GET /health` is the health
-  check. Idle sessions are swept after `SESSION_TTL_MS` (30 min); a 60 req/min
-  rate limit is keyed on the session id (or IP). The Docker `HEALTHCHECK` hits
-  `/health`.
+  is the SSE stream, `DELETE /mcp` tears it down; a request with an unknown or
+  expired session id gets **404** (the client must start a new session with a
+  fresh `initialize`), a request without one where one is required gets 400;
+  `GET /health` is the health check. Idle sessions are swept after
+  `SESSION_TTL_MS` (30 min); a 60 req/min rate limit is keyed on the session id
+  (or IP). The Docker `HEALTHCHECK` hits `/health`.
 
 ### HTTP env vars
 
