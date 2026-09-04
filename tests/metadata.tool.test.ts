@@ -39,6 +39,8 @@ const mockResult = {
   title: 'AI Act',
   date_document: '2024-06-13',
   date_entry_into_force: '2024-08-01',
+  date_application: null,
+  dates_effect: [{ date: '2024-08-01', type: 'unknown', note: null }],
   date_end_of_validity: null,
   in_force: true,
   date_transposition: null,

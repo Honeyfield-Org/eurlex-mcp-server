@@ -33,6 +33,7 @@ import type {
 } from '../types.js';
 import { sortDedupSlice } from '../utils.js';
 
+import { selectEntryIntoForce } from './effectDates.js';
 import { normalizeEliToCanonicalUri, normalizeOjRefToResourceUri } from './identifiers.js';
 import { TtlCache } from './ttlCache.js';
 
@@ -81,7 +82,7 @@ interface MetadataSparqlResponse {
     bindings: {
       title?: SparqlBindingValue;
       dateDoc?: SparqlBindingValue;
-      dateForce?: SparqlBindingValue;
+      dateForces?: SparqlBindingValue;
       dateEnd?: SparqlBindingValue;
       inForce?: SparqlBindingValue;
       dateTrans?: SparqlBindingValue;
@@ -544,7 +545,15 @@ export class CellarClient {
       'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
       'PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>',
       '',
-      'SELECT ?title ?dateDoc ?dateForce ?dateEnd ?inForce ?dateTrans ?resType',
+      // Every scalar is aggregated so a multi-valued property (notably
+      // resource_legal_date_entry-into-force, which holds BOTH the entry-into-force
+      // and the application date(s)) can never fan out into several rows — the
+      // previous GROUP BY over the scalars themselves did exactly that, and
+      // bindings[0] then picked an arbitrary row (issue #48).
+      'SELECT (SAMPLE(?titleRaw) AS ?title) (MIN(?dateDocRaw) AS ?dateDoc)',
+      '  (GROUP_CONCAT(DISTINCT STR(?dateForceRaw); separator="|||") AS ?dateForces)',
+      '  (MAX(?dateEndRaw) AS ?dateEnd) (SAMPLE(?inForceRaw) AS ?inForce)',
+      '  (MIN(?dateTransRaw) AS ?dateTrans) (SAMPLE(?resTypeRaw) AS ?resType)',
       '  (GROUP_CONCAT(DISTINCT ?authorName; separator="|||") AS ?authors)',
       '  (GROUP_CONCAT(DISTINCT ?evLabel; separator="|||") AS ?eurovoc)',
       '  (GROUP_CONCAT(DISTINCT ?dirCode; separator="|||") AS ?dirCodes)',
@@ -554,15 +563,15 @@ export class CellarClient {
       `  FILTER(STR(?celexVal) = "${escapeSparqlString(celexId)}")`,
       `  ?expr cdm:expression_belongs_to_work ?work .`,
       `  ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/${lang}> .`,
-      `  ?expr cdm:expression_title ?title .`,
-      '  OPTIONAL { ?work cdm:work_date_document ?dateDoc . }',
-      '  OPTIONAL { ?work cdm:resource_legal_date_entry-into-force ?dateForce . }',
-      '  OPTIONAL { ?work cdm:resource_legal_date_end-of-validity ?dateEnd . }',
-      '  OPTIONAL { ?work cdm:resource_legal_in-force ?inForce . }',
-      '  OPTIONAL { ?work cdm:resource_legal_date_transposition ?dateTrans . }',
+      `  ?expr cdm:expression_title ?titleRaw .`,
+      '  OPTIONAL { ?work cdm:work_date_document ?dateDocRaw . }',
+      '  OPTIONAL { ?work cdm:resource_legal_date_entry-into-force ?dateForceRaw . }',
+      '  OPTIONAL { ?work cdm:resource_legal_date_end-of-validity ?dateEndRaw . }',
+      '  OPTIONAL { ?work cdm:resource_legal_in-force ?inForceRaw . }',
+      '  OPTIONAL { ?work cdm:resource_legal_date_transposition ?dateTransRaw . }',
       '  OPTIONAL {',
       '    ?work cdm:work_has_resource-type ?resTypeUri .',
-      '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resType)',
+      '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resTypeRaw)',
       '  }',
       // Authors: the agent is an authority URI (e.g. .../corporate-body/EP) whose
       // human-readable name lives in skos:prefLabel — cdm:agent_name yields nothing
@@ -593,7 +602,7 @@ export class CellarClient {
       '    ?basis cdm:resource_legal_id_celex ?basisCelex .',
       '  }',
       '}',
-      'GROUP BY ?title ?dateDoc ?dateForce ?dateEnd ?inForce ?dateTrans ?resType',
+      'GROUP BY ?work',
     ].join('\n');
 
     return query;
@@ -643,11 +652,20 @@ export class CellarClient {
     const dateEnd = binding.dateEnd?.value;
     const dateEndNormalized = !dateEnd || dateEnd === '9999-12-31' ? null : dateEnd;
 
+    const dateDocument = normalizeDate(binding.dateDoc?.value);
+    // All effect dates Cellar holds (entry into force AND application dates),
+    // ascending. Their type is only known from the REST notice — see
+    // effectDatesQuery(); here they are 'unknown' and the entry-into-force
+    // date is picked heuristically.
+    const effectDates = splitConcat(binding.dateForces?.value).sort();
+
     const result: MetadataResult = {
       celex_id: celexId,
       title: binding.title?.value ?? '',
-      date_document: normalizeDate(binding.dateDoc?.value),
-      date_entry_into_force: normalizeDate(binding.dateForce?.value),
+      date_document: dateDocument,
+      date_entry_into_force: selectEntryIntoForce(effectDates, dateDocument),
+      date_application: null,
+      dates_effect: effectDates.map((date) => ({ date, type: 'unknown' as const, note: null })),
       date_end_of_validity: dateEndNormalized,
       in_force: parseInForce(binding.inForce?.value),
       date_transposition: normalizeDate(binding.dateTrans?.value),
