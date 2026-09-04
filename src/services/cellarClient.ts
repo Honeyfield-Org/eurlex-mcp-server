@@ -635,15 +635,18 @@ export class CellarClient {
       '    ?work cdm:work_has_resource-type ?resTypeUri .',
       '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resTypeRaw)',
       '  }',
-      // Authors: the agent is an authority URI (e.g. .../corporate-body/EP) whose
-      // human-readable name lives in skos:prefLabel — cdm:agent_name yields nothing
-      // (verified: it was the cause of the always-empty authors). Prefer the
-      // request-language label, fall back to English, last resort the URI tail.
+      // Authors: institutional agents are authority URIs (e.g. .../corporate-body/EP)
+      // whose human-readable name lives in skos:prefLabel; person agents (Advocates
+      // General, judges — CJEU acts, #52) are cdm:person resources under
+      // .../resource/cellar/<uuid> instead, carrying cdm:agent_name and no
+      // skos:prefLabel. Prefer the request-language label, fall back to English,
+      // then cdm:agent_name, last resort the URI tail (raw UUID for persons).
       '  OPTIONAL {',
       '    ?work cdm:work_created_by_agent ?agent .',
       `    OPTIONAL { ?agent skos:prefLabel ?agentLabelLang . FILTER(LANG(?agentLabelLang) = "${langLower}") }`,
       '    OPTIONAL { ?agent skos:prefLabel ?agentLabelEn . FILTER(LANG(?agentLabelEn) = "en") }',
-      '    BIND(COALESCE(?agentLabelLang, ?agentLabelEn, REPLACE(STR(?agent), "^.*/", "")) AS ?authorName)',
+      '    OPTIONAL { ?agent cdm:agent_name ?agentName . }',
+      '    BIND(COALESCE(?agentLabelLang, ?agentLabelEn, ?agentName, REPLACE(STR(?agent), "^.*/", "")) AS ?authorName)',
       '  }',
       '  OPTIONAL {',
       '    ?work cdm:work_is_about_concept_eurovoc ?evConcept .',

@@ -71,4 +71,10 @@ describe('Issue #48 – effect dates (live)', () => {
     expect(r.dates_effect).toEqual([])
     expect(r.title.length).toBeGreaterThan(0)
   }, TIMEOUT)
+
+  it('CJEU judgment 62021CJ0180: authors name the Advocate General, no raw cellar UUID (#52)', async () => {
+    const r = await metadata('62021CJ0180')
+    expect(r.authors).toContain('Campos Sánchez-Bordona')
+    expect(r.authors.some((a) => /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(a))).toBe(false)
+  }, TIMEOUT)
 })
