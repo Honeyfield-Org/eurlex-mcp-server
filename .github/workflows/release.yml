@@ -87,6 +87,8 @@ jobs:
     name: Build and push image
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       AWS_REGION: eu-central-1
       ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
@@ -127,6 +129,8 @@ jobs:
   deploy-gateway:
     name: Deploy
     needs: build-image
+    permissions:
+      contents: read
     uses: ./.github/workflows/deploy.yml
     with:
       image_tag: ${{ needs.build-image.outputs.version }}
