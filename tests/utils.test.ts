@@ -70,6 +70,10 @@ describe('stripHtml()', () => {
     expect(stripHtml('a<style>p{}</style\n>b')).toBe('ab')
   })
 
+  it('removes script blocks whose end tag carries whitespace and junk before ">"', () => {
+    expect(stripHtml('a<script>x()</script\t\n bar>b')).toBe('ab')
+  })
+
   it('does not leave a live <script> tag behind after removing a nested/split tag', () => {
     // A single pass would remove only the inner <script>, reconstructing a live
     // <script> tag from the split fragments. The fixpoint loop must not do that.

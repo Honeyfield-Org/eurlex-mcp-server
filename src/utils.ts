@@ -12,11 +12,13 @@ const ENTITY_REPLACEMENTS: [RegExp, string][] = [
   [/&amp;/gi, '&'],
 ];
 
-/** Tag-stripping passes applied by {@link stripTags}. End tags allow whitespace
- * before `>` (e.g. `</script >`), which a plain `<\/script>` literal misses. */
+/** Tag-stripping passes applied by {@link stripTags}. End tags match through
+ * `\b[^>]*>` — a browser treats `</script` (or `</style`) followed by
+ * whitespace/attributes/junk up to the next `>` as the closing tag (e.g.
+ * `</script\t\n bar>`), which a plain `<\/script>` literal misses. */
 const TAG_STRIPPERS: RegExp[] = [
-  /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,
-  /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,
+  /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi,
+  /<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi,
   /<[^>]*>/g,
 ];
 
