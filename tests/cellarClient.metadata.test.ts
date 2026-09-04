@@ -78,11 +78,13 @@ describe('CellarClient – Metadata', () => {
       expect(sparql).toContain('PREFIX skos:')
     })
 
-    it('M5f – authors use agent skos:prefLabel, NOT the broken cdm:agent_name', () => {
+    it('M5f – authors prefer agent skos:prefLabel over the bare cdm:agent_name fallback (#52)', () => {
       const sparql = client.buildMetadataQuery('32021R0694', 'DEU')
 
-      // The old (bug) property must be gone entirely
-      expect(sparql).not.toContain('agent_name')
+      // The old (bug) query bound ?authorName directly off cdm:agent_name — that
+      // bare pattern must be gone; agent_name is now only a COALESCE fallback
+      // for person agents (see M5k) after the prefLabel lookups.
+      expect(sparql).not.toMatch(/agent_name \?authorName/)
       // Author label = language prefLabel, fallback English, last resort URI tail.
       expect(sparql).toContain('work_created_by_agent')
       expect(sparql).toContain('COALESCE')
@@ -97,6 +99,15 @@ describe('CellarClient – Metadata', () => {
       const sparqlFra = client.buildMetadataQuery('32021R0694', 'FRA')
       expect(sparqlFra).toContain('"fr"')
       expect(sparqlFra).toContain('"en"')
+    })
+
+    it('M5k – authors fall back to cdm:agent_name for person agents (Advocates General)', () => {
+      const sparql = client.buildMetadataQuery('62021CJ0180', 'DEU')
+
+      // Persons (e.g. Advocates General) carry cdm:agent_name but no skos:prefLabel;
+      // institutions the reverse. Both must resolve to a name, never to the URI tail.
+      expect(sparql).toMatch(/OPTIONAL \{ \?agent cdm:agent_name \?agentName \. \}/)
+      expect(sparql).toMatch(/COALESCE\(\?agentLabelLang, \?agentLabelEn, \?agentName, REPLACE\(STR\(\?agent\)/)
     })
 
     it('M5h – query includes legal basis via resource_legal_based_on_resource_legal', () => {
