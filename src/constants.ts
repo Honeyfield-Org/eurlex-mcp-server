@@ -2,6 +2,9 @@ export const SPARQL_ENDPOINT = 'https://publications.europa.eu/webapi/rdf/sparql
 export const CELLAR_REST_BASE = 'https://publications.europa.eu/resource/celex';
 export const EURLEX_BASE = 'https://eur-lex.europa.eu/legal-content';
 
+/** Accept header for Cellar's work-level REST notice (typed effect dates live only there). */
+export const CELLAR_NOTICE_ACCEPT = 'application/xml;notice=object';
+
 /**
  * Cellar content-negotiation MIME for a LEGISSUM summary's XHTML manifestation.
  * LEGISSUM summary works carry an `xhtml5`-typed manifestation (not the plain

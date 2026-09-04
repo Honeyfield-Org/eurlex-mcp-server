@@ -13,6 +13,7 @@ const mock = vi.hoisted(() => ({
   resolveCelexId: vi.fn(),
   fetchDocument: vi.fn(),
   metadataQuery: vi.fn(),
+  effectDatesQuery: vi.fn(),
   citationsQuery: vi.fn(),
   resolveEurovocLabel: vi.fn(),
   eurovocQuery: vi.fn(),
@@ -172,6 +173,7 @@ beforeEach(() => {
   // Sensible defaults; individual tests override with mockResolvedValueOnce.
   mock.resolveCelexId.mockImplementation(async (i: { celex_id?: string }) => i.celex_id ?? '32016R0679')
   mock.fetchDocument.mockResolvedValue(STRUCTURED_XHTML)
+  mock.effectDatesQuery.mockResolvedValue(null)
 })
 
 afterEach(async () => {

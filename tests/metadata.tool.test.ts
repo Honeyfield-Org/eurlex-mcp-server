@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 // Mock CellarClient — must be before importing the tool handler
 // ---------------------------------------------------------------------------
-const { mockMetadataQuery, mockResolveCelexId } = vi.hoisted(() => ({
+const { mockMetadataQuery, mockResolveCelexId, mockEffectDatesQuery } = vi.hoisted(() => ({
   mockMetadataQuery: vi.fn(),
   mockResolveCelexId: vi.fn(),
+  mockEffectDatesQuery: vi.fn(),
 }))
 
 vi.mock('../src/services/cellarClient.js', () => ({
@@ -13,6 +14,7 @@ vi.mock('../src/services/cellarClient.js', () => ({
   sharedCellarClient: {
     metadataQuery: mockMetadataQuery,
     resolveCelexId: mockResolveCelexId,
+    effectDatesQuery: mockEffectDatesQuery,
   },
 }))
 
@@ -29,6 +31,7 @@ beforeEach(() => {
     async (i: { celex_id?: string; eli?: string; oj_ref?: string }) =>
       i.celex_id ?? i.eli ?? i.oj_ref
   )
+  mockEffectDatesQuery.mockResolvedValue(null)
 })
 
 // ---------------------------------------------------------------------------
@@ -178,5 +181,72 @@ describe('handleEurlexMetadata()', () => {
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toMatch(/exactly one identifier/i)
     expect(mockMetadataQuery).not.toHaveBeenCalled()
+  })
+})
+
+describe('handleEurlexMetadata() – effect dates from the Cellar notice', () => {
+  const typed = [
+    { date: '2024-08-01', type: 'entry_into_force', note: 'Date pub. +20 See Art 113' },
+    { date: '2026-08-02', type: 'application', note: 'See Art 113' },
+  ]
+
+  it('merges the typed dates into the result', async () => {
+    mockMetadataQuery.mockResolvedValueOnce({ ...mockResult, date_entry_into_force: '2025-02-02' })
+    mockEffectDatesQuery.mockResolvedValueOnce(typed)
+
+    const result = await handleEurlexMetadata({ celex_id: '32024R1689', language: 'ENG' })
+
+    expect(result.isError).toBeUndefined()
+    expect(result.structuredContent).toMatchObject({
+      date_entry_into_force: '2024-08-01',
+      date_application: '2026-08-02',
+      dates_effect: typed,
+    })
+    expect(mockEffectDatesQuery).toHaveBeenCalledWith('32024R1689')
+  })
+
+  it('runs the SPARQL query and the notice fetch in parallel', async () => {
+    const order: string[] = []
+    mockMetadataQuery.mockImplementationOnce(async () => {
+      order.push('sparql-start')
+      await new Promise((r) => setTimeout(r, 20))
+      order.push('sparql-end')
+      return mockResult
+    })
+    mockEffectDatesQuery.mockImplementationOnce(async () => {
+      order.push('notice-start')
+      return typed
+    })
+
+    await handleEurlexMetadata({ celex_id: '32024R1689', language: 'ENG' })
+
+    expect(order.indexOf('notice-start')).toBeLessThan(order.indexOf('sparql-end'))
+  })
+
+  it('falls back to the SPARQL result and warns on stderr when the notice fetch fails', async () => {
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockMetadataQuery.mockResolvedValueOnce(mockResult)
+    mockEffectDatesQuery.mockRejectedValueOnce(new Error('Notice fetch error: 503'))
+
+    const result = await handleEurlexMetadata({ celex_id: '32024R1689', language: 'ENG' })
+
+    expect(result.isError).toBeUndefined()
+    expect(result.structuredContent).toMatchObject({
+      date_entry_into_force: '2024-08-01',
+      date_application: null,
+      dates_effect: [{ date: '2024-08-01', type: 'unknown', note: null }],
+    })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain('32024R1689')
+    expect(String(warn.mock.calls[0][0])).toContain('Notice fetch error: 503')
+    warn.mockRestore()
+  })
+
+  it('leaves the result untouched when Cellar has no notice (null)', async () => {
+    mockMetadataQuery.mockResolvedValueOnce(mockResult)
+    mockEffectDatesQuery.mockResolvedValueOnce(null)
+
+    const result = await handleEurlexMetadata({ celex_id: '32024R1689', language: 'ENG' })
+    expect(result.structuredContent).toEqual(mockResult)
   })
 })

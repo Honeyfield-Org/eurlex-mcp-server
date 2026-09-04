@@ -1,6 +1,7 @@
 import {
   SPARQL_ENDPOINT,
   CELLAR_REST_BASE,
+  CELLAR_NOTICE_ACCEPT,
   CELLAR_SUMMARY_MIME,
   EURLEX_BASE,
   DEFAULT_LIMIT,
@@ -21,6 +22,7 @@ import type {
   SparqlQueryParams,
   SearchResult,
   MetadataResult,
+  EffectDate,
   CitationsResult,
   CitationEntry,
   CaseLawQueryParams,
@@ -33,6 +35,7 @@ import type {
 } from '../types.js';
 import { sortDedupSlice } from '../utils.js';
 
+import { parseNoticeEffectDates } from './cellarNotice.js';
 import { selectEntryIntoForce } from './effectDates.js';
 import { normalizeEliToCanonicalUri, normalizeOjRefToResourceUri } from './identifiers.js';
 import { TtlCache } from './ttlCache.js';
@@ -262,6 +265,7 @@ export class CellarClient {
   private readonly eurovocLabelCache: TtlCache<string | null>;
   private readonly consolidatedCelexCache: TtlCache<string | null>;
   private readonly metadataCache: TtlCache<MetadataResult>;
+  private readonly effectDatesCache: TtlCache<EffectDate[] | null>;
 
   constructor(options: CellarClientOptions = {}) {
     this.retryDelayFn =
@@ -280,6 +284,7 @@ export class CellarClient {
       now,
     );
     this.metadataCache = new TtlCache(METADATA_CACHE_MAX_ENTRIES, METADATA_CACHE_TTL_MS, now);
+    this.effectDatesCache = new TtlCache(METADATA_CACHE_MAX_ENTRIES, METADATA_CACHE_TTL_MS, now);
   }
 
   /**
@@ -530,6 +535,55 @@ export class CellarClient {
       notFoundError: `Document not found: ${celex_id}. Cellar holds no XHTML or HTML rendition for it — the document may be PDF-only on EUR-Lex, or the CELEX ID may be wrong.`,
       notAcceptableError: `Document ${celex_id} is not available in XHTML format. Older documents may only exist as PDF on EUR-Lex.`,
     });
+  }
+
+  /**
+   * Fetches Cellar's work-level REST notice for a CELEX ID. Returns null when
+   * Cellar has no notice for it (404/406). Retries on network errors, timeouts,
+   * HTTP 5xx, and 202 (notice still being generated).
+   */
+  private async fetchNotice(celexId: string): Promise<string | null> {
+    const url = `${CELLAR_REST_BASE}/${celexId}`;
+
+    return this.withRetry(async () => {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: CELLAR_NOTICE_ACCEPT },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (response.status === 404 || response.status === 406) return null;
+
+      if (response.status === 202) {
+        throw new HttpStatusError(
+          'Cellar is still generating this notice (HTTP 202). Retry in a few seconds.',
+          202,
+        );
+      }
+
+      if (!response.ok) {
+        throw new HttpStatusError(`Notice fetch error: ${response.status}`, response.status);
+      }
+
+      return response.text();
+    });
+  }
+
+  /**
+   * Typed effect dates (entry into force / application) of an act from the
+   * Cellar notice — the only place Cellar exposes the date type. Null when
+   * Cellar holds no notice for the CELEX; an empty array when the notice has
+   * no effect-date blocks. Cached per CELEX (the notice is language-independent).
+   */
+  async effectDatesQuery(celexId: string): Promise<EffectDate[] | null> {
+    const cached = this.effectDatesCache.get(celexId);
+    if (cached !== undefined) return cached === null ? null : cached.map((d) => ({ ...d }));
+
+    const xml = await this.fetchNotice(celexId);
+    const dates = xml === null ? null : parseNoticeEffectDates(xml);
+    this.effectDatesCache.set(celexId, dates === null ? null : dates.map((d) => ({ ...d })));
+    return dates;
   }
 
   /**
