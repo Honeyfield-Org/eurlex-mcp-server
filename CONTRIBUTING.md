@@ -100,7 +100,7 @@ The pre-commit hook will run formatting and linting automatically.
 - **Framework**: Vitest
 - **Location**: `tests/` directory (flat structure, one file per module)
 - **HTTP mocking**: Mock `cellarClient.ts` functions -- do not make real HTTP calls in unit tests
-- **Integration tests**: Placed in separate files, run with `pnpm test:integration`
+- **Integration tests**: Placed in `tests/integration/`, run with `pnpm test:integration`. One file: `pnpm test:integration tests/integration/<file>` — do not insert `--` before the path; pnpm forwards it and vitest then ignores the filter and runs the whole suite
 
 Example test structure:
 

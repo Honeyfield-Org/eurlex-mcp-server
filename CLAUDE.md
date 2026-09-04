@@ -34,6 +34,7 @@ pnpm test                # Unit tests (vitest run) — fetch is mocked, no netwo
 pnpm run test:watch      # Unit tests in watch mode
 pnpm run test:coverage   # Unit tests with V8 coverage report
 pnpm run test:integration # Live Cellar tests (network-dependent, separate config)
+pnpm run test:integration tests/integration/<file>  # one live file — never insert "--": vitest then runs the whole suite
 ```
 
 - **Unit tests** (`tests/*.test.ts`) mock `fetch` — they never touch the

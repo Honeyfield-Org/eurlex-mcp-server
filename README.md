@@ -391,6 +391,7 @@ pnpm build
 ```bash
 pnpm test              # unit tests
 pnpm test:integration  # integration tests (hits real API)
+pnpm test:integration tests/integration/effectDates.integration.test.ts  # one file — no "--"
 ```
 
 ## Limitations
