@@ -417,7 +417,7 @@ supports JSON Schema 2020-12 only; ...
 ```
 
 The error fires inside the client before any request reaches this server. Since
-**v2.3.1** the server omits the `$schema` key from its tool schemas, which every client
+**v2.4.0** the server omits the `$schema` key from its tool schemas, which every client
 accepts (a schema without `$schema` is read as 2020-12 per the MCP spec). If you still see
 the error you are running an older server build: `npx` caches versions, so use
 `npx -y eurlex-mcp-server@latest`, or pull the current Docker image. Background: this
