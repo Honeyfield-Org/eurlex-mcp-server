@@ -1,5 +1,7 @@
 import type { EffectDate, EffectDateType } from '../types.js';
 
+import { compareEffectDates } from './effectDates.js';
+
 /**
  * Parser for the entry-into-force / application dates in a Cellar REST notice
  * (`Accept: application/xml;notice=object`).
@@ -38,20 +40,15 @@ const TOKEN_LABELS: Record<string, string> = {
   'MA/PART': 'Partial application',
 };
 
-const TYPE_ORDER: Record<EffectDateType, number> = {
-  entry_into_force: 0,
-  application: 1,
-  partial_application: 2,
-  unknown: 3,
-};
-
 function decodeEntities(text: string): string {
   return text
-    .replace(/&amp;/g, '&')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_m, dec: string) => String.fromCodePoint(Number(dec)))
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
 }
 
 function decodeComment(raw: string): string | null {
@@ -105,7 +102,5 @@ export function parseNoticeEffectDates(noticeXml: string): EffectDate[] {
     }
   }
 
-  return dates.sort(
-    (a, b) => a.date.localeCompare(b.date) || TYPE_ORDER[a.type] - TYPE_ORDER[b.type],
-  );
+  return dates.sort(compareEffectDates);
 }

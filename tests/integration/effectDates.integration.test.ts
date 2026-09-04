@@ -63,4 +63,12 @@ describe('Issue #48 – effect dates (live)', () => {
     expect(r.eurovoc_concepts.length).toBeGreaterThan(0)
     expect(r.legal_basis.length).toBeGreaterThan(0)
   }, TIMEOUT)
+
+  it('CJEU judgment 62021CJ0180: no entry-into-force date → null and empty dates_effect', async () => {
+    const r = await metadata('62021CJ0180')
+    expect(r.date_entry_into_force).toBeNull()
+    expect(r.date_application).toBeNull()
+    expect(r.dates_effect).toEqual([])
+    expect(r.title.length).toBeGreaterThan(0)
+  }, TIMEOUT)
 })

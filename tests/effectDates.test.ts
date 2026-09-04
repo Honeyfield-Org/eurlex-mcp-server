@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { selectEntryIntoForce, mergeEffectDates } from '../src/services/effectDates.js'
+import { selectEntryIntoForce, mergeEffectDates, compareEffectDates } from '../src/services/effectDates.js'
 import type { MetadataResult } from '../src/types.js'
 
 describe('selectEntryIntoForce()', () => {
@@ -108,5 +108,33 @@ describe('mergeEffectDates()', () => {
     const snapshot = JSON.stringify(base)
     mergeEffectDates(base, [{ date: '2016-05-24', type: 'entry_into_force', note: null }])
     expect(JSON.stringify(base)).toBe(snapshot)
+  })
+
+  it('keeps SPARQL-only dates as unknown entries', () => {
+    const merged = mergeEffectDates(base, [
+      { date: '2016-05-24', type: 'entry_into_force', note: 'Date pub. +20 See Art 99' },
+    ])
+    expect(merged.dates_effect).toEqual([
+      { date: '2016-05-24', type: 'entry_into_force', note: 'Date pub. +20 See Art 99' },
+      { date: '2018-05-25', type: 'unknown', note: null },
+    ])
+    expect(merged.date_application).toBeNull()
+  })
+})
+
+describe('compareEffectDates()', () => {
+  it('sorts entry_into_force before application before partial_application before unknown on the same date', () => {
+    const dates = [
+      { date: '2020-01-01', type: 'unknown' as const, note: null },
+      { date: '2020-01-01', type: 'partial_application' as const, note: null },
+      { date: '2020-01-01', type: 'application' as const, note: null },
+      { date: '2020-01-01', type: 'entry_into_force' as const, note: null },
+    ]
+    expect([...dates].sort(compareEffectDates)).toEqual([
+      { date: '2020-01-01', type: 'entry_into_force', note: null },
+      { date: '2020-01-01', type: 'application', note: null },
+      { date: '2020-01-01', type: 'partial_application', note: null },
+      { date: '2020-01-01', type: 'unknown', note: null },
+    ])
   })
 })

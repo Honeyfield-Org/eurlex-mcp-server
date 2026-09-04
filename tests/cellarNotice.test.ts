@@ -91,6 +91,13 @@ describe('parseNoticeEffectDates()', () => {
     expect(parseNoticeEffectDates(xml)).toEqual([{ date: '2020-01-01', type: 'entry_into_force', note: 'See Art 1 & 2' }])
   })
 
+  it('decodes numeric entities and does not double-decode &amp;', () => {
+    const xml = `<RESOURCE_LEGAL_DATE_ENTRY-INTO-FORCE type="date"><VALUE>2020-01-01</VALUE><ANNOTATION><TYPE_OF_DATE>{EV|${FD}/EV}</TYPE_OF_DATE><COMMENT_ON_DATE>{ART|${FD}/ART} 1 &amp;lt; 2 &#39;x&#x27;</COMMENT_ON_DATE></ANNOTATION></RESOURCE_LEGAL_DATE_ENTRY-INTO-FORCE>`
+    const result = parseNoticeEffectDates(xml)
+    expect(result).toEqual([{ date: '2020-01-01', type: 'entry_into_force', note: "Art 1 &lt; 2 'x'" }])
+    expect(result[0].note).toContain('&lt;')
+  })
+
   it('removes duplicate entries', () => {
     const block = `<RESOURCE_LEGAL_DATE_ENTRY-INTO-FORCE type="date"><VALUE>2020-01-01</VALUE><ANNOTATION><TYPE_OF_DATE>{EV|${FD}/EV}</TYPE_OF_DATE></ANNOTATION></RESOURCE_LEGAL_DATE_ENTRY-INTO-FORCE>`
     expect(parseNoticeEffectDates(block + block)).toEqual([{ date: '2020-01-01', type: 'entry_into_force', note: null }])

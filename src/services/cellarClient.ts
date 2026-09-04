@@ -566,7 +566,15 @@ export class CellarClient {
         throw new HttpStatusError(`Notice fetch error: ${response.status}`, response.status);
       }
 
-      return response.text();
+      const body = await response.text();
+      // A 2xx with a blank body is Cellar mid-render (see fetchCellarDocument) — retryable,
+      // and never cached as "no effect dates".
+      if (body.trim() === '') {
+        throw new EmptyBodyError(
+          'Cellar returned an empty notice body. The notice may still be generating — retry in a few seconds.',
+        );
+      }
+      return body;
     });
   }
 

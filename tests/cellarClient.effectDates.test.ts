@@ -94,6 +94,30 @@ describe('CellarClient – effectDatesQuery()', () => {
     expect(await client.effectDatesQuery('32016R0679')).toHaveLength(2)
   })
 
+  it('retries an empty 2xx body and then succeeds', async () => {
+    client = makeClientWithFakeDelay()
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => '   ' })
+      .mockResolvedValueOnce(ok(NOTICE))
+
+    const dates = await client.effectDatesQuery('32016R0679')
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(dates).toHaveLength(2)
+  })
+
+  it('does not cache a persistently empty body', async () => {
+    client = makeClientWithFakeDelay()
+    mockFetch.mockResolvedValue({ ok: true, status: 200, text: async () => '' })
+
+    await expect(client.effectDatesQuery('32016R0679')).rejects.toThrow()
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+
+    mockFetch.mockReset()
+    mockFetch.mockResolvedValueOnce(ok(NOTICE))
+    expect(await client.effectDatesQuery('32016R0679')).toHaveLength(2)
+  })
+
   it('returns [] (not null) for a notice without effect-date blocks', async () => {
     mockFetch.mockResolvedValueOnce(ok('<NOTICE><WORK></WORK></NOTICE>'))
     expect(await client.effectDatesQuery('32016R0679')).toEqual([])

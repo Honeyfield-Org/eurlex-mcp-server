@@ -61,7 +61,7 @@ export const effectDateSchema = z.object({
   type: z
     .enum(['entry_into_force', 'application', 'partial_application', 'unknown'])
     .describe(
-      'entry_into_force: the act entered into force; application: the act (or its remaining provisions) starts to apply; partial_application: only some provisions start to apply (see note); unknown: the Cellar notice was unavailable, so the type could not be determined',
+      'entry_into_force: the act entered into force; application: the act (or its remaining provisions) starts to apply; partial_application: only some provisions start to apply (see note); unknown: the type of this date could not be determined, either because the Cellar notice did not state one for it or because the notice was unavailable',
     ),
   note: z
     .string()
