@@ -221,7 +221,7 @@ Retrieve the full text of a document, identified by **exactly one** of `celex_id
 
 ### eurlex_metadata
 
-Retrieve structured metadata for a document: document/entry-into-force/end-of-validity/transposition dates, in-force status, authors, legal basis, EuroVoc descriptors, and directory codes. Identified by **exactly one** of `celex_id`, `eli`, or `oj_ref` (same identifier inputs as `eurlex_fetch`).
+Retrieve structured metadata for a document: dates (document, entry into force, application, end of validity, transposition), in-force status, authors, legal basis, EuroVoc descriptors, and directory codes. Identified by **exactly one** of `celex_id`, `eli`, or `oj_ref` (same identifier inputs as `eurlex_fetch`).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -236,6 +236,7 @@ Notes on the response:
 - `authors` lists the resolved agent names (e.g. "European Parliament", "Council of the European Union") instead of an empty array.
 - `legal_basis` lists the CELEX IDs of the acts this document is based on.
 - Date fields (`date_document`, `date_entry_into_force`, `date_end_of_validity`, `date_transposition`) are `null` when absent -- including Cellar's `9999-12-31` sentinel for acts with no defined end of validity, which is normalized to `null`.
+- `date_entry_into_force` and `date_application` are distinct: the GDPR entered into force on `2016-05-24` but applies from `2018-05-25`. Cellar stores every such "date of effect" under one property; `dates_effect` lists all of them ascending with a `type` (`entry_into_force`, `application`, `partial_application`) and the article note (e.g. `"Partial application See Art 113(a)"`). The types come from Cellar's work notice; if that request fails the dates are still returned with `type: "unknown"` and `date_entry_into_force` is the earliest date not before `date_document`.
 - `directory_codes` are human-readable (`"{code-tail}: {label}"`, where `code-tail` is the fragment after the last `/` of the directory-code URI), not raw URIs.
 
 ### eurlex_citations

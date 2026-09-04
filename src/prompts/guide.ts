@@ -11,7 +11,7 @@ Searches EU legal acts by title substring (contiguous phrase, case-insensitive �
 Fetches the full text of a legal act. Identify it by celex_id, eli (short form "reg/2016/679" or full "http://data.europa.eu/eli/reg/2016/679/oj"), or oj_ref (post-2023 Official Journal reference, e.g. "OJ:L_202401689") — provide exactly one; eli/oj_ref are resolved to a CELEX via Cellar. Paginate long documents with offset and max_chars — pass the previous response's next_offset to continue reading until it is null.
 
 ### eurlex_metadata — Metadata lookup
-Returns dates (document, entry into force, end of validity, transposition), in-force status, authors, legal basis (CELEX IDs of the acts it is based on), EuroVoc descriptors, and directory codes. Identify the act by celex_id, eli, or oj_ref (exactly one) — same identifier inputs as eurlex_fetch.
+Returns dates (document, entry into force, application, end of validity, transposition), in-force status, authors, legal basis (CELEX IDs of the acts it is based on), EuroVoc descriptors, and directory codes. date_entry_into_force ≠ date_application (GDPR: in force 2016-05-24, applies from 2018-05-25); dates_effect lists every effect date with its type, including partial-application dates for staggered acts such as the AI Act. Identify the act by celex_id, eli, or oj_ref (exactly one) — same identifier inputs as eurlex_fetch.
 
 ### eurlex_citations — Citations & relationships
 Finds citations, legal basis, and amendments for a legal act. Directions: cites (referenced by this act), cited_by (acts referencing this one), both (a balanced split of both directions, with a counts field reporting how many of each side were found).

@@ -77,6 +77,8 @@ src/
 ├── utils.ts              # processContent / stripHtml / parseOutline / sortDedupSlice / toolError / toCallToolResult
 ├── services/
 │   ├── cellarClient.ts   # ALL SPARQL + REST: CellarClient class, withRetry, TTL caches, escapeSparqlString
+│   ├── cellarNotice.ts    # Pure parser: typed effect dates (EV/MA) from the Cellar REST object notice
+│   ├── effectDates.ts     # Pure: entry-into-force heuristic + merge of typed notice dates into MetadataResult
 │   ├── identifiers.ts     # Pure (network-free) ELI / OJ-ref → canonical-URI normalization
 │   ├── schemaDialectShim.ts # Strips `$schema` (draft-07) from tools/list — workaround for #49, drop with #50
 │   └── ttlCache.ts        # TtlCache: read-only expiry, no timers, caches null ("not found")
@@ -263,6 +265,14 @@ Probed against the live endpoint (see dated notes in `cellarClient.ts` /
   Directive is ELI `dir/1995/46` but CELEX `31995L0046`), so ELIs are resolved by
   matching the stored literal via SPARQL — **not** by deriving the CELEX
   arithmetically.
+- **`cdm:resource_legal_date_entry-into-force` is multi-valued** — it holds the
+  entry-into-force date *and* every application date (GDPR: 2016-05-24 + 2018-05-25;
+  AI Act: 5 values). SPARQL cannot tell them apart; the type (`EV` / `MA`, partial via
+  `{MA/PART|…}` in the comment) exists only in the REST notice
+  (`Accept: application/xml;notice=object`, ~0.1–2 MB per act). `eurlex_metadata`
+  aggregates in SPARQL (`GROUP BY ?work`) and fetches the notice in parallel.
+  Known upstream data error: DSA 32022R2065 carries `2022-02-17` typed `MA`
+  (should be 2024-02-17).
 - **OJ series letter ≠ act type**: an OJ ref like `OJ:L_202401689` encodes only
   the series (`L` = legislation) and a running number; R/L/D can't be inferred
   from it → a SPARQL lookup resolves the real CELEX.
