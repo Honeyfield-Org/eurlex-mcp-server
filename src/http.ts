@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 
 import { SESSION_TTL_MS } from './constants.js';
 import { createServer } from './server.js';
+import { withStrippedSchemaDialect } from './services/schemaDialectShim.js';
 
 /**
  * Parses a comma-separated env var into a trimmed, non-empty list of entries.
@@ -121,7 +122,7 @@ export function createApp(): {
     };
 
     const server = createServer();
-    await server.connect(transport);
+    await server.connect(withStrippedSchemaDialect(transport));
     await transport.handleRequest(req, res, req.body);
   });
 

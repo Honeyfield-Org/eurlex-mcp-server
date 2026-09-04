@@ -78,6 +78,7 @@ src/
 ├── services/
 │   ├── cellarClient.ts   # ALL SPARQL + REST: CellarClient class, withRetry, TTL caches, escapeSparqlString
 │   ├── identifiers.ts     # Pure (network-free) ELI / OJ-ref → canonical-URI normalization
+│   ├── schemaDialectShim.ts # Strips `$schema` (draft-07) from tools/list — workaround for #49, drop with #50
 │   └── ttlCache.ts        # TtlCache: read-only expiry, no timers, caches null ("not found")
 ├── schemas/               # One Zod file per tool: input schema (.shape) + output schema
 │   ├── searchSchema.ts    # searchResultSchema is shared by search + eurovoc

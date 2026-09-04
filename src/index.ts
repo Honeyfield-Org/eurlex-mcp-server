@@ -2,10 +2,11 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { createServer } from './server.js';
+import { withStrippedSchemaDialect } from './services/schemaDialectShim.js';
 
 async function main(): Promise<void> {
   const server = createServer();
-  const transport = new StdioServerTransport();
+  const transport = withStrippedSchemaDialect(new StdioServerTransport());
   await server.connect(transport);
 }
 
