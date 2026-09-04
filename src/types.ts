@@ -52,13 +52,27 @@ export interface SearchToolOutput {
   total: number;
 }
 
+export type EffectDateType = 'entry_into_force' | 'application' | 'partial_application' | 'unknown';
+
+export interface EffectDate {
+  /** ISO date (YYYY-MM-DD). */
+  date: string;
+  type: EffectDateType;
+  /** Decoded Cellar annotation, e.g. "Date pub. +20 See Art 99"; null when absent. */
+  note: string | null;
+}
+
 export interface MetadataResult {
   celex_id: string;
   title: string;
   /** ISO date, or null when absent. */
   date_document: string | null;
-  /** ISO date, or null when absent. */
+  /** ISO date the act entered into force, or null when absent. Distinct from date_application. */
   date_entry_into_force: string | null;
+  /** ISO date from which the act (or its remaining provisions) applies; null when unknown or not separate. */
+  date_application: string | null;
+  /** Every entry-into-force / application date Cellar holds for the act, ascending. */
+  dates_effect: EffectDate[];
   /** ISO date, or null when absent OR when it is the Cellar `9999-12-31` sentinel. */
   date_end_of_validity: string | null;
   in_force: boolean | null;

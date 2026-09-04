@@ -13,6 +13,7 @@ const mock = vi.hoisted(() => ({
   resolveCelexId: vi.fn(),
   fetchDocument: vi.fn(),
   metadataQuery: vi.fn(),
+  effectDatesQuery: vi.fn(),
   citationsQuery: vi.fn(),
   resolveEurovocLabel: vi.fn(),
   eurovocQuery: vi.fn(),
@@ -59,6 +60,11 @@ const metadataFull: MetadataResult = {
   title: 'General Data Protection Regulation',
   date_document: '2016-04-27',
   date_entry_into_force: '2016-05-24',
+  date_application: null,
+  dates_effect: [
+    { date: '2016-05-24', type: 'unknown', note: null },
+    { date: '2018-05-25', type: 'unknown', note: null },
+  ],
   date_end_of_validity: null,
   in_force: true,
   date_transposition: null,
@@ -167,6 +173,7 @@ beforeEach(() => {
   // Sensible defaults; individual tests override with mockResolvedValueOnce.
   mock.resolveCelexId.mockImplementation(async (i: { celex_id?: string }) => i.celex_id ?? '32016R0679')
   mock.fetchDocument.mockResolvedValue(STRUCTURED_XHTML)
+  mock.effectDatesQuery.mockResolvedValue(null)
 })
 
 afterEach(async () => {

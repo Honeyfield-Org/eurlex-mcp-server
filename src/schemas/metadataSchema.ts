@@ -56,6 +56,21 @@ export const metadataInputSchema = metadataSchema.superRefine((data, ctx) => {
   }
 });
 
+export const effectDateSchema = z.object({
+  date: z.string().describe('ISO date'),
+  type: z
+    .enum(['entry_into_force', 'application', 'partial_application', 'unknown'])
+    .describe(
+      'entry_into_force: the act entered into force; application: the act (or its remaining provisions) starts to apply; partial_application: only some provisions start to apply (see note); unknown: the type of this date could not be determined, either because the Cellar notice did not state one for it or because the notice was unavailable',
+    ),
+  note: z
+    .string()
+    .nullable()
+    .describe(
+      'Cellar annotation, e.g. "Date pub. +20 See Art 99" or "Partial application See Art 113(a)"; null when absent',
+    ),
+});
+
 /**
  * Output of eurlex_metadata. Dates and in_force are nullable: Cellar frequently
  * omits them, and date_end_of_validity is also nulled when it is the "9999-12-31"
@@ -65,7 +80,23 @@ export const metadataOutputSchema = z.object({
   celex_id: z.string(),
   title: z.string(),
   date_document: z.string().nullable().describe('ISO date, or null when absent'),
-  date_entry_into_force: z.string().nullable().describe('ISO date, or null when absent'),
+  date_entry_into_force: z
+    .string()
+    .nullable()
+    .describe(
+      'ISO date the act entered into force, or null when absent. Distinct from date_application: e.g. the GDPR entered into force on 2016-05-24 but applies from 2018-05-25. See dates_effect for every date Cellar holds.',
+    ),
+  date_application: z
+    .string()
+    .nullable()
+    .describe(
+      'ISO date from which the act (or its remaining provisions) applies, or null when the act has no separate application date or the type could not be determined',
+    ),
+  dates_effect: z
+    .array(effectDateSchema)
+    .describe(
+      'All entry-into-force and application dates Cellar holds for the act, ascending, each with its type and article note. Empty when Cellar holds none.',
+    ),
   date_end_of_validity: z
     .string()
     .nullable()

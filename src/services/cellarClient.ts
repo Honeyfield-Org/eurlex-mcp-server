@@ -1,6 +1,7 @@
 import {
   SPARQL_ENDPOINT,
   CELLAR_REST_BASE,
+  CELLAR_NOTICE_ACCEPT,
   CELLAR_SUMMARY_MIME,
   EURLEX_BASE,
   DEFAULT_LIMIT,
@@ -21,6 +22,7 @@ import type {
   SparqlQueryParams,
   SearchResult,
   MetadataResult,
+  EffectDate,
   CitationsResult,
   CitationEntry,
   CaseLawQueryParams,
@@ -33,6 +35,8 @@ import type {
 } from '../types.js';
 import { sortDedupSlice } from '../utils.js';
 
+import { parseNoticeEffectDates } from './cellarNotice.js';
+import { selectEntryIntoForce } from './effectDates.js';
 import { normalizeEliToCanonicalUri, normalizeOjRefToResourceUri } from './identifiers.js';
 import { TtlCache } from './ttlCache.js';
 
@@ -81,7 +85,7 @@ interface MetadataSparqlResponse {
     bindings: {
       title?: SparqlBindingValue;
       dateDoc?: SparqlBindingValue;
-      dateForce?: SparqlBindingValue;
+      dateForces?: SparqlBindingValue;
       dateEnd?: SparqlBindingValue;
       inForce?: SparqlBindingValue;
       dateTrans?: SparqlBindingValue;
@@ -261,6 +265,7 @@ export class CellarClient {
   private readonly eurovocLabelCache: TtlCache<string | null>;
   private readonly consolidatedCelexCache: TtlCache<string | null>;
   private readonly metadataCache: TtlCache<MetadataResult>;
+  private readonly effectDatesCache: TtlCache<EffectDate[] | null>;
 
   constructor(options: CellarClientOptions = {}) {
     this.retryDelayFn =
@@ -279,6 +284,7 @@ export class CellarClient {
       now,
     );
     this.metadataCache = new TtlCache(METADATA_CACHE_MAX_ENTRIES, METADATA_CACHE_TTL_MS, now);
+    this.effectDatesCache = new TtlCache(METADATA_CACHE_MAX_ENTRIES, METADATA_CACHE_TTL_MS, now);
   }
 
   /**
@@ -532,6 +538,63 @@ export class CellarClient {
   }
 
   /**
+   * Fetches Cellar's work-level REST notice for a CELEX ID. Returns null when
+   * Cellar has no notice for it (404/406). Retries on network errors, timeouts,
+   * HTTP 5xx, and 202 (notice still being generated).
+   */
+  private async fetchNotice(celexId: string): Promise<string | null> {
+    const url = `${CELLAR_REST_BASE}/${celexId}`;
+
+    return this.withRetry(async () => {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: CELLAR_NOTICE_ACCEPT },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (response.status === 404 || response.status === 406) return null;
+
+      if (response.status === 202) {
+        throw new HttpStatusError(
+          'Cellar is still generating this notice (HTTP 202). Retry in a few seconds.',
+          202,
+        );
+      }
+
+      if (!response.ok) {
+        throw new HttpStatusError(`Notice fetch error: ${response.status}`, response.status);
+      }
+
+      const body = await response.text();
+      // A 2xx with a blank body is Cellar mid-render (see fetchCellarDocument) — retryable,
+      // and never cached as "no effect dates".
+      if (body.trim() === '') {
+        throw new EmptyBodyError(
+          'Cellar returned an empty notice body. The notice may still be generating — retry in a few seconds.',
+        );
+      }
+      return body;
+    });
+  }
+
+  /**
+   * Typed effect dates (entry into force / application) of an act from the
+   * Cellar notice — the only place Cellar exposes the date type. Null when
+   * Cellar holds no notice for the CELEX; an empty array when the notice has
+   * no effect-date blocks. Cached per CELEX (the notice is language-independent).
+   */
+  async effectDatesQuery(celexId: string): Promise<EffectDate[] | null> {
+    const cached = this.effectDatesCache.get(celexId);
+    if (cached !== undefined) return cached === null ? null : cached.map((d) => ({ ...d }));
+
+    const xml = await this.fetchNotice(celexId);
+    const dates = xml === null ? null : parseNoticeEffectDates(xml);
+    this.effectDatesCache.set(celexId, dates === null ? null : dates.map((d) => ({ ...d })));
+    return dates;
+  }
+
+  /**
    * Builds a SPARQL query to retrieve metadata for a given CELEX ID.
    */
   buildMetadataQuery(celexId: string, language: string): string {
@@ -544,7 +607,15 @@ export class CellarClient {
       'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
       'PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>',
       '',
-      'SELECT ?title ?dateDoc ?dateForce ?dateEnd ?inForce ?dateTrans ?resType',
+      // Every scalar is aggregated so a multi-valued property (notably
+      // resource_legal_date_entry-into-force, which holds BOTH the entry-into-force
+      // and the application date(s)) can never fan out into several rows — the
+      // previous GROUP BY over the scalars themselves did exactly that, and
+      // bindings[0] then picked an arbitrary row (issue #48).
+      'SELECT (SAMPLE(?titleRaw) AS ?title) (MIN(?dateDocRaw) AS ?dateDoc)',
+      '  (GROUP_CONCAT(DISTINCT STR(?dateForceRaw); separator="|||") AS ?dateForces)',
+      '  (MAX(?dateEndRaw) AS ?dateEnd) (SAMPLE(?inForceRaw) AS ?inForce)',
+      '  (MIN(?dateTransRaw) AS ?dateTrans) (SAMPLE(?resTypeRaw) AS ?resType)',
       '  (GROUP_CONCAT(DISTINCT ?authorName; separator="|||") AS ?authors)',
       '  (GROUP_CONCAT(DISTINCT ?evLabel; separator="|||") AS ?eurovoc)',
       '  (GROUP_CONCAT(DISTINCT ?dirCode; separator="|||") AS ?dirCodes)',
@@ -554,15 +625,15 @@ export class CellarClient {
       `  FILTER(STR(?celexVal) = "${escapeSparqlString(celexId)}")`,
       `  ?expr cdm:expression_belongs_to_work ?work .`,
       `  ?expr cdm:expression_uses_language <http://publications.europa.eu/resource/authority/language/${lang}> .`,
-      `  ?expr cdm:expression_title ?title .`,
-      '  OPTIONAL { ?work cdm:work_date_document ?dateDoc . }',
-      '  OPTIONAL { ?work cdm:resource_legal_date_entry-into-force ?dateForce . }',
-      '  OPTIONAL { ?work cdm:resource_legal_date_end-of-validity ?dateEnd . }',
-      '  OPTIONAL { ?work cdm:resource_legal_in-force ?inForce . }',
-      '  OPTIONAL { ?work cdm:resource_legal_date_transposition ?dateTrans . }',
+      `  ?expr cdm:expression_title ?titleRaw .`,
+      '  OPTIONAL { ?work cdm:work_date_document ?dateDocRaw . }',
+      '  OPTIONAL { ?work cdm:resource_legal_date_entry-into-force ?dateForceRaw . }',
+      '  OPTIONAL { ?work cdm:resource_legal_date_end-of-validity ?dateEndRaw . }',
+      '  OPTIONAL { ?work cdm:resource_legal_in-force ?inForceRaw . }',
+      '  OPTIONAL { ?work cdm:resource_legal_date_transposition ?dateTransRaw . }',
       '  OPTIONAL {',
       '    ?work cdm:work_has_resource-type ?resTypeUri .',
-      '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resType)',
+      '    BIND(REPLACE(STR(?resTypeUri), "^.*/", "") AS ?resTypeRaw)',
       '  }',
       // Authors: the agent is an authority URI (e.g. .../corporate-body/EP) whose
       // human-readable name lives in skos:prefLabel — cdm:agent_name yields nothing
@@ -593,7 +664,7 @@ export class CellarClient {
       '    ?basis cdm:resource_legal_id_celex ?basisCelex .',
       '  }',
       '}',
-      'GROUP BY ?title ?dateDoc ?dateForce ?dateEnd ?inForce ?dateTrans ?resType',
+      'GROUP BY ?work',
     ].join('\n');
 
     return query;
@@ -643,11 +714,20 @@ export class CellarClient {
     const dateEnd = binding.dateEnd?.value;
     const dateEndNormalized = !dateEnd || dateEnd === '9999-12-31' ? null : dateEnd;
 
+    const dateDocument = normalizeDate(binding.dateDoc?.value);
+    // All effect dates Cellar holds (entry into force AND application dates),
+    // ascending. Their type is only known from the REST notice — see
+    // effectDatesQuery(); here they are 'unknown' and the entry-into-force
+    // date is picked heuristically.
+    const effectDates = splitConcat(binding.dateForces?.value).sort();
+
     const result: MetadataResult = {
       celex_id: celexId,
       title: binding.title?.value ?? '',
-      date_document: normalizeDate(binding.dateDoc?.value),
-      date_entry_into_force: normalizeDate(binding.dateForce?.value),
+      date_document: dateDocument,
+      date_entry_into_force: selectEntryIntoForce(effectDates, dateDocument),
+      date_application: null,
+      dates_effect: effectDates.map((date) => ({ date, type: 'unknown' as const, note: null })),
       date_end_of_validity: dateEndNormalized,
       in_force: parseInForce(binding.inForce?.value),
       date_transposition: normalizeDate(binding.dateTrans?.value),
