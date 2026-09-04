@@ -401,6 +401,27 @@ pnpm test:integration  # integration tests (hits real API)
 - **SPARQL timeouts**: Complex queries may occasionally time out on the Cellar endpoint despite the built-in retry with backoff; narrow broad `eurlex_search`/`eurlex_by_eurovoc` queries with `resource_type` or date filters if this happens.
 - **Search ordering**: `eurlex_search` results are sorted newest-first within the fetched sample only -- for very broad queries this is not guaranteed to be the single globally newest match.
 
+## Troubleshooting
+
+### `invalid outputSchema: JSON Schema declares an unsupported dialect ("$schema": ".../draft-07/schema#")`
+
+Some MCP client builds (Claude Desktop, Cowork, Claude Code releases that bundle a
+pre-release `@modelcontextprotocol/client` 2.0.0-alpha/beta) reject **every** tool call with:
+
+```
+Error: Tool '<name>' has an invalid outputSchema: JSON Schema declares an unsupported
+dialect ("$schema": "http://json-schema.org/draft-07/schema#"). The default validator
+supports JSON Schema 2020-12 only; ...
+```
+
+The error fires inside the client before any request reaches this server. Since
+**v2.3.1** the server omits the `$schema` key from its tool schemas, which every client
+accepts (a schema without `$schema` is read as 2020-12 per the MCP spec). If you still see
+the error you are running an older server build: `npx` caches versions, so use
+`npx -y eurlex-mcp-server@latest`, or pull the current Docker image. Background: this
+repo's issue #49; the client-side check was relaxed upstream in
+`@modelcontextprotocol/client` 2.0.0 (modelcontextprotocol/typescript-sdk#2532).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture overview, and submission guidelines.
