@@ -109,6 +109,8 @@ describe('handleEurlexMetadata()', () => {
     expect(parsed).toHaveProperty('title')
     expect(parsed).toHaveProperty('date_document')
     expect(parsed).toHaveProperty('date_entry_into_force')
+    expect(parsed).toHaveProperty('date_application')
+    expect(parsed).toHaveProperty('dates_effect')
     expect(parsed).toHaveProperty('date_end_of_validity')
     expect(parsed).toHaveProperty('in_force')
     expect(parsed).toHaveProperty('date_transposition')
@@ -123,6 +125,7 @@ describe('handleEurlexMetadata()', () => {
     expect(Array.isArray(parsed.eurovoc_concepts)).toBe(true)
     expect(Array.isArray(parsed.directory_codes)).toBe(true)
     expect(Array.isArray(parsed.legal_basis)).toBe(true)
+    expect(Array.isArray(parsed.dates_effect)).toBe(true)
   })
 
   // -------------------------------------------------------------------------
