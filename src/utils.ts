@@ -12,6 +12,31 @@ const ENTITY_REPLACEMENTS: [RegExp, string][] = [
   [/&amp;/gi, '&'],
 ];
 
+/** Tag-stripping passes applied by {@link stripTags}. End tags match through
+ * `\b[^>]*>` — a browser treats `</script` (or `</style`) followed by
+ * whitespace/attributes/junk up to the next `>` as the closing tag (e.g.
+ * `</script\t\n bar>`), which a plain `<\/script>` literal misses. */
+const TAG_STRIPPERS: RegExp[] = [
+  /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi,
+  /<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi,
+  /<[^>]*>/g,
+];
+
+/**
+ * Strips tags until a pass changes nothing, so a tag split by another tag
+ * (`<scr<script>ipt>` → one pass removes the inner `<script>`, leaving
+ * `<scr...ipt>` behind) cannot survive stripHtml (CodeQL
+ * js/incomplete-multi-character-sanitization).
+ */
+function stripTags(html: string): string {
+  let text = html;
+  for (;;) {
+    const before = text;
+    for (const re of TAG_STRIPPERS) text = text.replace(re, '');
+    if (text === before) return text;
+  }
+}
+
 /**
  * Converts HTML/XHTML into compact plain text: strips tags, decodes common
  * entities, collapses runs of horizontal whitespace, trims trailing
@@ -22,10 +47,7 @@ const ENTITY_REPLACEMENTS: [RegExp, string][] = [
  * biggest token saving for `plain` format output.
  */
 export function stripHtml(content: string): string {
-  let text = content
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]*>/g, '');
+  let text = stripTags(content);
 
   for (const [pattern, replacement] of ENTITY_REPLACEMENTS) {
     text = text.replace(pattern, replacement);

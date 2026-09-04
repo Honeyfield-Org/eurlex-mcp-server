@@ -35,6 +35,8 @@ jobs:
   deploy:
     name: Deploy to Gateway
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Check deploy variables
