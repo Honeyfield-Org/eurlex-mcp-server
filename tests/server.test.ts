@@ -4,13 +4,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Mock the SDK — avoid real McpServer initialization
 // ---------------------------------------------------------------------------
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
-  McpServer: vi.fn().mockImplementation(() => ({
-    connect: vi.fn(),
-    tool: vi.fn(),
-    registerTool: vi.fn(),
-    prompt: vi.fn(),
-    registerPrompt: vi.fn(),
-  })),
+  McpServer: vi.fn().mockImplementation(function () {
+    return {
+      connect: vi.fn(),
+      tool: vi.fn(),
+      registerTool: vi.fn(),
+      prompt: vi.fn(),
+      registerPrompt: vi.fn(),
+    }
+  }),
 }))
 
 // ---------------------------------------------------------------------------
@@ -76,6 +78,19 @@ beforeEach(() => {
 // Tests S1-S8: createServer() factory function
 // ===========================================================================
 describe('createServer()', () => {
+  it('S0 – createServer passes server identity to McpServer', async () => {
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js')
+    const { createServer } = await import('../src/server.js')
+    const { VERSION } = await import('../src/version.js')
+
+    createServer()
+
+    expect(McpServer).toHaveBeenCalledWith({
+      name: 'eurlex-mcp-server',
+      version: VERSION,
+    })
+  })
+
   it('S1 – createServer returns an McpServer instance', async () => {
     const { createServer } = await import('../src/server.js')
     const server = createServer()
