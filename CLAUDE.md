@@ -200,6 +200,24 @@ then drives `release.yml`:
   YAML — this repo is **public**. Never commit instance names, IPs, server
   paths, or the registry hostname.
 
+### Dependency security fixes
+
+- **Check the chain first:** `pnpm why <pkg>` (and `--prod`). Dev-only fixes need
+  no release (npm ships only `dist/`, Docker installs `--prod`); runtime fixes
+  need a version-bump PR + `v*` tag.
+- **Regular transitive dep** whose parent range already allows the fix → no
+  override. **Range excludes the fix** → raise a floor in `pnpm.overrides`.
+  **Auto-installed peer** (e.g. vite via vitest) → `pnpm update` won't move it;
+  `pnpm add -D <pkg>@~X && pnpm remove <pkg>` re-resolves it.
+- **Keep the lockfile diff minimal:** `pnpm add` / `pnpm update` can pull
+  unrelated bumps. Clean path: `git checkout pnpm-lock.yaml`, edit
+  `package.json`, `pnpm install`; for transitive deps delete the old `pkg@ver`
+  blocks from `pnpm-lock.yaml` and run `pnpm install` again. Review the changed
+  package list before committing.
+- **Alerts blocked upstream** (parent still pins the vulnerable major): leave
+  open, no dismiss — re-check `npm view <parent>@latest dependencies` on each
+  Dependabot round.
+
 ## Hosting: Two Transports
 
 - **stdio** (`src/index.ts`): a single `McpServer`, used by local MCP clients
@@ -288,4 +306,5 @@ Probed against the live endpoint (see dated notes in `cellarClient.ts` /
 - User-facing docs + tool reference: `README.md` (keep in sync with tools).
 - Contributor guide: `CONTRIBUTING.md`.
 - In-repo API/data-model notes: `docs/`.
+- Current state, open items, recent decisions: `HANDOFF.md` (dated snapshot).
 - Cellar SPARQL endpoint: <https://publications.europa.eu/webapi/rdf/sparql>
